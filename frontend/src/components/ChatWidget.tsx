@@ -15,7 +15,9 @@ type ChatMessage = {
 
 type ChatResponse = {
     reply: string;
+    interaction_id: string;
 };
+
 
 const initialMessages: ChatMessage[] = [
     {
@@ -26,6 +28,8 @@ const initialMessages: ChatMessage[] = [
     },
 ];
 export default function ChatWidget() {
+    const [previousInteractionId, setPreviousInteractionId] = useState<string | null>(null);
+
     const [isOpen, setIsOpen] = useState(false);
     const [input, setInput] = useState("");
     const [messages, setMessages] =
@@ -70,6 +74,7 @@ export default function ChatWidget() {
                     },
                     body: JSON.stringify({
                         message: cleanedMessage,
+                        previous_interaction_id: previousInteractionId,
                     }),
                 },
             );
@@ -79,6 +84,7 @@ export default function ChatWidget() {
             }
 
             const data: ChatResponse = await response.json();
+            setPreviousInteractionId(data.interaction_id);
 
             const assistantMessage: ChatMessage = {
                 id: Date.now() + 1,
@@ -108,6 +114,15 @@ export default function ChatWidget() {
             setIsLoading(false);
         }
     }
+    function startNewConversation() {
+        if (isLoading) {
+            return;
+        }
+
+        setMessages(initialMessages);
+        setPreviousInteractionId(null);
+        setInput("");
+    }
 
     function handleSubmit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
@@ -126,14 +141,25 @@ export default function ChatWidget() {
                             </p>
                         </div>
 
-                        <button
-                            type="button"
-                            onClick={() => setIsOpen(false)}
-                            className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-xl transition hover:bg-white/20"
-                            aria-label="Close chatbot"
-                        >
-                            ×
-                        </button>
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={startNewConversation}
+                                disabled={isLoading}
+                                className="rounded-full border border-white/20 px-3 py-1.5 text-xs font-semibold transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                New chat
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => setIsOpen(false)}
+                                className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-xl transition hover:bg-white/20"
+                                aria-label="Close chatbot"
+                            >
+                                ×
+                            </button>
+                        </div>
                     </header>
 
                     <div className="flex-1 space-y-4 overflow-y-auto bg-[#fffaf0] p-4">
