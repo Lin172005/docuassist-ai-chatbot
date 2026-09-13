@@ -18,6 +18,7 @@ allowed_origins = [
     for origin in os.getenv(
         "ALLOWED_ORIGINS",
         "http://localhost:3000",
+        "https://docuassist-ai-chatbot-nine.vercel.app",
     ).split(",")
     if origin.strip()
 ]
