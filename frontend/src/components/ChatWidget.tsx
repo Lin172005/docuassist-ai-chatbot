@@ -16,8 +16,19 @@ type ChatMessage = {
 type ChatResponse = {
     reply: string;
     interaction_id: string;
+    sources: ChatSource[];
 };
 
+type ChatSource = {
+    title: string;
+    source_type: string;
+    similarity: number;
+};
+
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL ??
+  "http://localhost:8000"
+).replace(/\/$/, "");
 
 const initialMessages: ChatMessage[] = [
     {
@@ -66,7 +77,7 @@ export default function ChatWidget() {
 
         try {
             const response = await fetch(
-                "http://localhost:8000/api/chat",
+                `${API_BASE_URL}/api/chat`,
                 {
                     method: "POST",
                     headers: {
@@ -75,6 +86,12 @@ export default function ChatWidget() {
                     body: JSON.stringify({
                         message: cleanedMessage,
                         previous_interaction_id: previousInteractionId,
+                        conversation_history: messages
+                            .slice(-6)
+                            .map((message) => ({
+                                role: message.role,
+                                content: message.content,
+                            })),
                     }),
                 },
             );

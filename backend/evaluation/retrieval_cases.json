@@ -1,0 +1,44 @@
+[
+  {
+    "query": "Which honey has a rich and full-bodied flavour?",
+    "expected_top_source": "Forest Honey"
+  },
+  {
+    "query": "I prefer something smooth and floral.",
+    "expected_top_source": "Wildflower Honey"
+  },
+  {
+    "query": "Which honey has a mildly tangy taste?",
+    "expected_top_source": "Jamun Honey"
+  },
+  {
+    "query": "Does WildHive use artificial colours?",
+    "expected_top_source": "Artificial flavours and colours"
+  },
+  {
+    "query": "Does WildHive work with partner beekeepers?",
+    "expected_top_source": "WildHive responsible sourcing"
+  },
+  {
+    "query": "Tell me about WH-FOREST-500",
+    "expected_top_source": "Forest Honey"
+  },
+  {
+    "query": "How much does it cost?",
+    "history": [
+      {
+        "role": "user",
+        "content": "Which honey has the richest flavour?"
+      },
+      {
+        "role": "assistant",
+        "content": "Forest Honey has the richest and most full-bodied flavour."
+      }
+    ],
+    "expected_top_source": "Forest Honey"
+  },
+  {
+    "query": "Who won yesterday's football match?",
+    "expected_top_source": null
+  }
+]
