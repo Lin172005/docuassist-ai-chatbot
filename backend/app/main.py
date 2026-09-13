@@ -1,10 +1,8 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from app.routers.chat import router as chat_router
 import os
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.database import engine
@@ -17,7 +15,10 @@ allowed_origins = [
     origin.strip()
     for origin in os.getenv(
         "ALLOWED_ORIGINS",
-        "http://localhost:3000","https://docuassist-ai-chatbot-nine.vercel.app",
+        (
+            "http://localhost:3000,"
+            "https://docuassist-ai-chatbot-nine.vercel.app"
+        ),
     ).split(",")
     if origin.strip()
 ]
@@ -38,6 +39,7 @@ app.add_middleware(
     allow_headers=["Content-Type"],
 )
 
+
 app.include_router(chat_router)
 
 
@@ -47,6 +49,7 @@ async def health_check() -> dict[str, str]:
         "status": "healthy",
         "service": "WildHive API",
     }
+
 
 @app.get("/health/ready")
 def readiness_check() -> dict[str, str]:
