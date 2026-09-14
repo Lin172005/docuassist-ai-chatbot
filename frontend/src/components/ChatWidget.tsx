@@ -54,6 +54,14 @@ export default function ChatWidget() {
         });
     }, [messages, isLoading, isOpen]);
 
+    useEffect(() => {
+        function handleOpenChat() {
+            setIsOpen(true);
+        }
+        window.addEventListener("open-chat", handleOpenChat);
+        return () => window.removeEventListener("open-chat", handleOpenChat);
+    }, []);
+
     async function sendMessage(content: string) {
         const cleanedMessage = content.trim();
 
