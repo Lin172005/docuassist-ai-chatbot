@@ -224,3 +224,86 @@ export async function deleteCategory(id: string, token: string): Promise<void> {
     token,
   });
 }
+
+// ── Admin form configuration (field configs & custom field defs) ──
+
+export interface ApiFieldConfigPayload {
+  id: string;
+  [key: string]: unknown;
+}
+
+export async function getFieldConfigs(token: string): Promise<Record<string, unknown>[]> {
+  return request<Record<string, unknown>[]>("/api/field-configs", { token });
+}
+
+export async function upsertFieldConfig(
+  id: string,
+  data: Record<string, unknown>,
+  token: string,
+): Promise<Record<string, unknown>> {
+  return request<Record<string, unknown>>(`/api/field-configs/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+    token,
+  });
+}
+
+export async function createFieldConfig(
+  data: Record<string, unknown>,
+  token: string,
+): Promise<Record<string, unknown>> {
+  return request<Record<string, unknown>>("/api/field-configs", {
+    method: "POST",
+    body: JSON.stringify(data),
+    token,
+  });
+}
+
+export async function deleteFieldConfig(id: string, token: string): Promise<void> {
+  return request<void>(`/api/field-configs/${id}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
+export async function reorderFieldConfigs(ids: string[], token: string): Promise<void> {
+  return request<void>("/api/field-configs/reorder", {
+    method: "PUT",
+    body: JSON.stringify({ ids }),
+    token,
+  });
+}
+
+export async function getCustomFields(token: string): Promise<Record<string, unknown>[]> {
+  return request<Record<string, unknown>[]>("/api/custom-fields", { token });
+}
+
+export async function upsertCustomField(
+  id: string,
+  data: Record<string, unknown>,
+  token: string,
+): Promise<Record<string, unknown>> {
+  return request<Record<string, unknown>>(`/api/custom-fields/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+    token,
+  });
+}
+
+export async function createCustomField(
+  data: Record<string, unknown>,
+  token: string,
+): Promise<Record<string, unknown>> {
+  return request<Record<string, unknown>>("/api/custom-fields", {
+    method: "POST",
+    body: JSON.stringify(data),
+    token,
+  });
+}
+
+export async function deleteCustomField(id: string, token: string): Promise<void> {
+  return request<void>(`/api/custom-fields/${id}`, {
+    method: "DELETE",
+    token,
+  });
+}

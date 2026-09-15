@@ -19,6 +19,15 @@ import {
   updateProduct as apiUpdateProduct,
   deleteProduct as apiDeleteProduct,
   getCategories as apiGetCategories,
+  getFieldConfigs as apiGetFieldConfigs,
+  upsertFieldConfig as apiUpsertFieldConfig,
+  createFieldConfig as apiCreateFieldConfig,
+  deleteFieldConfig as apiDeleteFieldConfig,
+  reorderFieldConfigs as apiReorderFieldConfigs,
+  getCustomFields as apiGetCustomFields,
+  upsertCustomField as apiUpsertCustomField,
+  createCustomField as apiCreateCustomField,
+  deleteCustomField as apiDeleteCustomField,
   type ApiProduct,
 } from "@/lib/api";
 
@@ -242,9 +251,11 @@ export function AdminProductProvider({ children }: { children: React.ReactNode }
 
     async function loadFromApi() {
       try {
-        const [productRes, categoryRes] = await Promise.all([
+        const [productRes, categoryRes, fieldConfigRes, customFieldRes] = await Promise.all([
           getProducts({ per_page: 100, token: stored || undefined }),
           apiGetCategories(stored || undefined).catch(() => null),
+          stored ? apiGetFieldConfigs(stored).catch(() => null) : Promise.resolve(null),
+          stored ? apiGetCustomFields(stored).catch(() => null) : Promise.resolve(null),
         ]);
 
         const adminProducts = productRes.products.map(mapApiToAdminProduct);
@@ -258,11 +269,25 @@ export function AdminProductProvider({ children }: { children: React.ReactNode }
           categoriesRef.current = merged;
         }
 
-        const data = loadAdminData();
-        setFieldConfigs(data.fieldConfigs);
-        setCustomFields(data.customFields);
-        fieldConfigsRef.current = data.fieldConfigs;
-        customFieldsRef.current = data.customFields;
+        if (fieldConfigRes && fieldConfigRes.length > 0) {
+          const configs = fieldConfigRes as unknown as FieldConfig[];
+          setFieldConfigs(configs);
+          fieldConfigsRef.current = configs;
+        } else {
+          const data = loadAdminData();
+          setFieldConfigs(data.fieldConfigs);
+          fieldConfigsRef.current = data.fieldConfigs;
+        }
+
+        if (customFieldRes && customFieldRes.length > 0) {
+          const defs = customFieldRes as unknown as CustomFieldDef[];
+          setCustomFields(defs);
+          customFieldsRef.current = defs;
+        } else {
+          const data = loadAdminData();
+          setCustomFields(data.customFields);
+          customFieldsRef.current = data.customFields;
+        }
       } catch {
         const data = loadAdminData();
         setProducts(data.products);
@@ -360,6 +385,11 @@ export function AdminProductProvider({ children }: { children: React.ReactNode }
     setFieldConfigs(next);
     fieldConfigsRef.current = next;
     save();
+    const token = localStorage.getItem("wildhive-token");
+    const target = next.find(f => f.id === id);
+    if (token && target) {
+      apiUpsertFieldConfig(id, target as unknown as Record<string, unknown>, token).catch(e => console.error("Failed to sync field config:", e));
+    }
   }, [save]);
 
   const addFieldConfig = useCallback((config: FieldConfig) => {
@@ -367,6 +397,10 @@ export function AdminProductProvider({ children }: { children: React.ReactNode }
     setFieldConfigs(next);
     fieldConfigsRef.current = next;
     save();
+    const token = localStorage.getItem("wildhive-token");
+    if (token) {
+      apiCreateFieldConfig(config as unknown as Record<string, unknown>, token).catch(e => console.error("Failed to sync field config:", e));
+    }
   }, [save]);
 
   const removeFieldConfig = useCallback((id: string) => {
@@ -374,12 +408,20 @@ export function AdminProductProvider({ children }: { children: React.ReactNode }
     setFieldConfigs(next);
     fieldConfigsRef.current = next;
     save();
+    const token = localStorage.getItem("wildhive-token");
+    if (token) {
+      apiDeleteFieldConfig(id, token).catch(e => console.error("Failed to delete field config:", e));
+    }
   }, [save]);
 
   const reorderFieldConfigs = useCallback((configs: FieldConfig[]) => {
     setFieldConfigs(configs);
     fieldConfigsRef.current = configs;
     save();
+    const token = localStorage.getItem("wildhive-token");
+    if (token) {
+      apiReorderFieldConfigs(configs.map(c => c.id), token).catch(e => console.error("Failed to reorder field configs:", e));
+    }
   }, [save]);
 
   const addCategory = useCallback((parentId: string | null, name: string) => {
@@ -414,6 +456,10 @@ export function AdminProductProvider({ children }: { children: React.ReactNode }
     setCustomFields(next);
     customFieldsRef.current = next;
     save();
+    const token = localStorage.getItem("wildhive-token");
+    if (token) {
+      apiCreateCustomField(field as unknown as Record<string, unknown>, token).catch(e => console.error("Failed to sync custom field:", e));
+    }
   }, [save]);
 
   const removeCustomField = useCallback((id: string) => {
@@ -421,6 +467,10 @@ export function AdminProductProvider({ children }: { children: React.ReactNode }
     setCustomFields(next);
     customFieldsRef.current = next;
     save();
+    const token = localStorage.getItem("wildhive-token");
+    if (token) {
+      apiDeleteCustomField(id, token).catch(e => console.error("Failed to delete custom field:", e));
+    }
   }, [save]);
 
   const updateCustomField = useCallback((id: string, updates: Partial<CustomFieldDef>) => {
@@ -428,6 +478,11 @@ export function AdminProductProvider({ children }: { children: React.ReactNode }
     setCustomFields(next);
     customFieldsRef.current = next;
     save();
+    const token = localStorage.getItem("wildhive-token");
+    const target = next.find(f => f.id === id);
+    if (token && target) {
+      apiUpsertCustomField(id, target as unknown as Record<string, unknown>, token).catch(e => console.error("Failed to sync custom field:", e));
+    }
   }, [save]);
 
   const value = useMemo<AdminProductContextType>(() => ({

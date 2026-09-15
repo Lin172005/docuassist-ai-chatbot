@@ -15,6 +15,7 @@ from app.routers.chat import router as chat_router
 from app.routers.auth import router as auth_router
 from app.routers.products import router as products_router
 from app.routers.categories import router as categories_router
+from app.routers.fields import router as fields_router
 
 allowed_origins = [
     origin.strip()
@@ -49,7 +50,7 @@ app.add_middleware(
 async def add_cache_control_headers(request: Request, call_next):
     response = await call_next(request)
     path = request.url.path
-    if path.startswith("/api/products") or path.startswith("/api/categories"):
+    if path.startswith("/api/products") or path.startswith("/api/categories") or path.startswith("/api/field-configs") or path.startswith("/api/custom-fields"):
         if request.method == "GET":
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
             response.headers["Pragma"] = "no-cache"
@@ -61,6 +62,7 @@ app.include_router(chat_router)
 app.include_router(auth_router)
 app.include_router(products_router)
 app.include_router(categories_router)
+app.include_router(fields_router)
 
 
 @app.get("/health")
