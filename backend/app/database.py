@@ -1,11 +1,16 @@
 import os
+from collections.abc import Generator
+from pathlib import Path
 
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.models.base import Base
 
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 database_url = os.getenv("DATABASE_URL")
 
@@ -27,6 +32,16 @@ engine: Engine = create_engine(
     max_overflow=2,
     pool_recycle=300,
     connect_args={
-        "sslmode": "require",
+        "sslmode": os.getenv("DB_SSLMODE", "prefer"),
     },
 )
+
+SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+
+
+def get_db() -> Generator[Session, None, None]:
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()

@@ -13,6 +13,14 @@ import {
   nowISO,
   slugify,
 } from "@/lib/admin-products";
+import {
+  getProducts,
+  createProduct as apiCreateProduct,
+  updateProduct as apiUpdateProduct,
+  deleteProduct as apiDeleteProduct,
+  getCategories as apiGetCategories,
+  type ApiProduct,
+} from "@/lib/api";
 
 const ADMIN_STORAGE_KEY = "wildhive-admin";
 
@@ -31,10 +39,10 @@ interface AdminProductContextType {
   customFields: CustomFieldDef[];
   isLoading: boolean;
 
-  addProduct: (product: Omit<AdminProduct, "id" | "createdAt" | "updatedAt">) => AdminProduct;
-  updateProduct: (id: string, updates: Partial<AdminProduct>) => void;
-  deleteProduct: (id: string) => void;
-  duplicateProduct: (id: string) => AdminProduct | null;
+  addProduct: (product: Omit<AdminProduct, "id" | "createdAt" | "updatedAt">) => Promise<AdminProduct>;
+  updateProduct: (id: string, updates: Partial<AdminProduct>) => Promise<AdminProduct>;
+  deleteProduct: (id: string) => Promise<void>;
+  duplicateProduct: (id: string) => Promise<AdminProduct | null>;
   getProductById: (id: string) => AdminProduct | undefined;
 
   updateFieldConfig: (id: string, updates: Partial<FieldConfig>) => void;
@@ -52,6 +60,99 @@ interface AdminProductContextType {
 }
 
 const AdminProductContext = createContext<AdminProductContextType | null>(null);
+
+function mapAdminToApiCreate(input: Omit<AdminProduct, "id" | "createdAt" | "updatedAt">): Record<string, unknown> {
+  const categories = JSON.parse(localStorage.getItem("wildhive-admin") || "{}").categories as CategoryNode[] | undefined;
+  let categoryId: string | null = null;
+  if (categories && input.category) {
+    function findCat(nodes: CategoryNode[]): CategoryNode | undefined {
+      for (const n of nodes) {
+        if (n.name === input.category) return n;
+        const found = findCat(n.children);
+        if (found) return found;
+      }
+      return undefined;
+    }
+    const cat = findCat(categories);
+    if (cat && !cat.id.startsWith("cat-")) categoryId = cat.id;
+  }
+
+  return {
+    name: input.name,
+    slug: input.slug || slugify(input.name),
+    description: input.description,
+    status: input.status,
+    category_id: categoryId,
+    subcategory: input.subcategory,
+    tags: input.tags,
+    price: input.price,
+    currency: input.currency,
+    sale_price: input.salePrice,
+    price_tiers: input.priceTiers,
+    sku: input.sku,
+    barcode: input.barcode,
+    stock: input.stock,
+    low_stock_threshold: input.lowStockThreshold,
+    allow_backorder: input.allowBackorder,
+    variants: input.variants,
+    images: input.images,
+    weight: input.weight,
+    weight_unit: input.weightUnit,
+    dimensions: input.dimensions,
+    dimension_unit: input.dimensionUnit,
+    related_product_ids: input.relatedProductIds,
+    cross_sell_ids: input.crossSellIds,
+    seo: input.seo,
+    custom_fields: input.customFields,
+  };
+}
+
+function mapAdminToApiUpdate(updates: Partial<AdminProduct>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  if (updates.name !== undefined) result.name = updates.name;
+  if (updates.slug !== undefined) result.slug = updates.slug;
+  if (updates.description !== undefined) result.description = updates.description;
+  if (updates.status !== undefined) result.status = updates.status;
+  if (updates.category !== undefined) {
+    const categories = JSON.parse(localStorage.getItem("wildhive-admin") || "{}").categories as CategoryNode[] | undefined;
+    let categoryId: string | null = null;
+    if (categories && updates.category) {
+      function findCat(nodes: CategoryNode[]): CategoryNode | undefined {
+        for (const n of nodes) {
+          if (n.name === updates.category) return n;
+          const found = findCat(n.children);
+          if (found) return found;
+        }
+        return undefined;
+      }
+      const cat = findCat(categories);
+      if (cat && !cat.id.startsWith("cat-")) categoryId = cat.id;
+    }
+    result.category_id = categoryId;
+  }
+  if (updates.subcategory !== undefined) result.subcategory = updates.subcategory;
+  if (updates.tags !== undefined) result.tags = updates.tags;
+  if (updates.price !== undefined) result.price = updates.price;
+  if (updates.currency !== undefined) result.currency = updates.currency;
+  if (updates.salePrice !== undefined) result.sale_price = updates.salePrice;
+  if (updates.priceTiers !== undefined) result.price_tiers = updates.priceTiers;
+  if (updates.sku !== undefined) result.sku = updates.sku;
+  if (updates.barcode !== undefined) result.barcode = updates.barcode;
+  if (updates.stock !== undefined) result.stock = updates.stock;
+  if (updates.lowStockThreshold !== undefined) result.low_stock_threshold = updates.lowStockThreshold;
+  if (updates.allowBackorder !== undefined) result.allow_backorder = updates.allowBackorder;
+  if (updates.variants !== undefined) result.variants = updates.variants;
+  if (updates.images !== undefined) result.images = updates.images;
+  if (updates.weight !== undefined) result.weight = updates.weight;
+  if (updates.weightUnit !== undefined) result.weight_unit = updates.weightUnit;
+  if (updates.dimensions !== undefined) result.dimensions = updates.dimensions;
+  if (updates.dimensionUnit !== undefined) result.dimension_unit = updates.dimensionUnit;
+  if (updates.relatedProductIds !== undefined) result.related_product_ids = updates.relatedProductIds;
+  if (updates.crossSellIds !== undefined) result.cross_sell_ids = updates.crossSellIds;
+  if (updates.seo !== undefined) result.seo = updates.seo;
+  if (updates.customFields !== undefined) result.custom_fields = updates.customFields;
+  return result;
+}
 
 function loadAdminData(): AdminProductData {
   if (typeof window === "undefined") {
@@ -75,6 +176,49 @@ function persist(data: AdminProductData) {
   } catch { /* silent */ }
 }
 
+function mapApiToAdminProduct(p: ApiProduct): AdminProduct {
+  return {
+    id: p.id,
+    name: p.name,
+    slug: p.slug,
+    description: p.description || p.full_description || "",
+    status: p.status as AdminProduct["status"],
+    category: p.category_name || "",
+    subcategory: p.subcategory || "",
+    tags: p.tags || [],
+    images: (p.images || []).map((img, i) => ({ id: img.id, url: img.url, alt: img.alt, order: i })),
+    price: p.price,
+    currency: p.currency,
+    salePrice: p.sale_price || undefined,
+    priceTiers: p.price_tiers || [],
+    variants: (p.variants || []).map(v => ({
+      id: v.id,
+      name: v.name,
+      attributes: v.attributes,
+      sku: v.sku,
+      barcode: v.barcode,
+      price: v.price,
+      stock: v.stock,
+      imageIndex: v.imageIndex,
+    })),
+    sku: p.sku,
+    barcode: p.barcode || "",
+    stock: p.stock,
+    lowStockThreshold: p.low_stock_threshold,
+    allowBackorder: p.allow_backorder,
+    weight: p.weight || 0,
+    weightUnit: p.weight_unit as AdminProduct["weightUnit"],
+    dimensions: p.dimensions || { length: 0, width: 0, height: 0 },
+    dimensionUnit: p.dimension_unit as AdminProduct["dimensionUnit"],
+    relatedProductIds: p.related_product_ids || [],
+    crossSellIds: p.cross_sell_ids || [],
+    seo: p.seo || { metaTitle: "", metaDescription: "", keywords: [], template: "default" },
+    customFields: p.custom_fields || {},
+    createdAt: p.created_at,
+    updatedAt: p.updated_at,
+  };
+}
+
 export function AdminProductProvider({ children }: { children: React.ReactNode }) {
   const [products, setProducts] = useState<AdminProduct[]>(SEED_ADMIN_PRODUCTS);
   const [fieldConfigs, setFieldConfigs] = useState<FieldConfig[]>(DEFAULT_FIELD_CONFIGS);
@@ -82,7 +226,6 @@ export function AdminProductProvider({ children }: { children: React.ReactNode }
   const [customFields, setCustomFields] = useState<CustomFieldDef[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Refs to always have latest state for synchronous persistence
   const productsRef = useRef(products);
   const fieldConfigsRef = useRef(fieldConfigs);
   const categoriesRef = useRef(categories);
@@ -93,21 +236,50 @@ export function AdminProductProvider({ children }: { children: React.ReactNode }
   useEffect(() => { categoriesRef.current = categories; }, [categories]);
   useEffect(() => { customFieldsRef.current = customFields; }, [customFields]);
 
-  // Load from localStorage on mount
+  // Load from API on mount, with localStorage fallback
   useEffect(() => {
-    const data = loadAdminData();
-    setProducts(data.products);
-    setFieldConfigs(data.fieldConfigs);
-    setCategories(data.categories);
-    setCustomFields(data.customFields);
-    productsRef.current = data.products;
-    fieldConfigsRef.current = data.fieldConfigs;
-    categoriesRef.current = data.categories;
-    customFieldsRef.current = data.customFields;
-    setIsLoading(false);
+    const stored = localStorage.getItem("wildhive-token");
+
+    async function loadFromApi() {
+      try {
+        const [productRes, categoryRes] = await Promise.all([
+          getProducts({ per_page: 100, token: stored || undefined }),
+          apiGetCategories(stored || undefined).catch(() => null),
+        ]);
+
+        const adminProducts = productRes.products.map(mapApiToAdminProduct);
+        setProducts(adminProducts);
+        productsRef.current = adminProducts;
+
+        if (categoryRes) {
+          const apiTree = buildCategoryTree(categoryRes);
+          const merged = mergeWithDefaults(apiTree, DEFAULT_CATEGORIES);
+          setCategories(merged);
+          categoriesRef.current = merged;
+        }
+
+        const data = loadAdminData();
+        setFieldConfigs(data.fieldConfigs);
+        setCustomFields(data.customFields);
+        fieldConfigsRef.current = data.fieldConfigs;
+        customFieldsRef.current = data.customFields;
+      } catch {
+        const data = loadAdminData();
+        setProducts(data.products);
+        setFieldConfigs(data.fieldConfigs);
+        setCategories(data.categories);
+        setCustomFields(data.customFields);
+        productsRef.current = data.products;
+        fieldConfigsRef.current = data.fieldConfigs;
+        categoriesRef.current = data.categories;
+        customFieldsRef.current = data.customFields;
+      }
+      setIsLoading(false);
+    }
+
+    loadFromApi();
   }, []);
 
-  // Helper: persist current state synchronously using refs
   const save = useCallback(() => {
     persist({
       version: STORAGE_VERSION,
@@ -118,45 +290,66 @@ export function AdminProductProvider({ children }: { children: React.ReactNode }
     });
   }, []);
 
-  const addProduct = useCallback((input: Omit<AdminProduct, "id" | "createdAt" | "updatedAt">): AdminProduct => {
-    const currentProducts = productsRef.current;
-    const id = `WH${String(currentProducts.length + 1).padStart(3, "0")}`;
-    const now = nowISO();
-    const product: AdminProduct = { ...input, id, createdAt: now, updatedAt: now };
-    const next = [...currentProducts, product];
+  const addProduct = useCallback(async (input: Omit<AdminProduct, "id" | "createdAt" | "updatedAt">): Promise<AdminProduct> => {
+    const token = localStorage.getItem("wildhive-token");
+    if (!token) throw new Error("You must be signed in to create a product.");
+
+    const created = await apiCreateProduct(mapAdminToApiCreate(input), token);
+    const product = mapApiToAdminProduct(created);
+    const next = [...productsRef.current, product];
     setProducts(next);
     productsRef.current = next;
     save();
+    window.dispatchEvent(new CustomEvent("wildhive-products-changed"));
     return product;
   }, [save]);
 
-  const updateProduct = useCallback((id: string, updates: Partial<AdminProduct>) => {
-    const next = productsRef.current.map(p => p.id === id ? { ...p, ...updates, updatedAt: nowISO() } : p);
+  const updateProduct = useCallback(async (id: string, updates: Partial<AdminProduct>): Promise<AdminProduct> => {
+    const token = localStorage.getItem("wildhive-token");
+    if (!token) throw new Error("You must be signed in to update a product.");
+
+    const updatedFromApi = await apiUpdateProduct(id, mapAdminToApiUpdate(updates), token);
+    const updatedProduct = mapApiToAdminProduct(updatedFromApi);
+    const next = productsRef.current.map(p => p.id === id ? updatedProduct : p);
     setProducts(next);
     productsRef.current = next;
     save();
+    window.dispatchEvent(new CustomEvent("wildhive-products-changed"));
+    return updatedProduct;
   }, [save]);
 
-  const deleteProduct = useCallback((id: string) => {
+  const deleteProduct = useCallback(async (id: string): Promise<void> => {
+    const token = localStorage.getItem("wildhive-token");
+    if (!token) throw new Error("You must be signed in to delete a product.");
+
+    await apiDeleteProduct(id, token);
     const next = productsRef.current.filter(p => p.id !== id);
     setProducts(next);
     productsRef.current = next;
     save();
+    window.dispatchEvent(new CustomEvent("wildhive-products-changed"));
   }, [save]);
 
-  const duplicateProduct = useCallback((id: string): AdminProduct | null => {
+  const duplicateProduct = useCallback(async (id: string): Promise<AdminProduct | null> => {
     const src = productsRef.current.find(p => p.id === id);
     if (!src) return null;
-    const newId = `WH${String(productsRef.current.length + 1).padStart(3, "0")}`;
-    const now = nowISO();
-    const dup: AdminProduct = {
-      ...src, id: newId, name: `${src.name} (Copy)`, slug: `${src.slug}-copy`,
-      sku: `${src.sku}-COPY`, status: "draft", createdAt: now, updatedAt: now,
+    const token = localStorage.getItem("wildhive-token");
+    if (!token) throw new Error("You must be signed in to duplicate a product.");
+    const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...copy } = src;
+    const duplicate = {
+      ...copy,
+      name: `${src.name} (Copy)`,
+      slug: `${src.slug}-copy-${Date.now()}`,
+      sku: `${src.sku}-COPY-${productsRef.current.length + 1}`,
+      status: "draft" as const,
     };
+    const created = await apiCreateProduct(mapAdminToApiCreate(duplicate), token);
+    const dup = mapApiToAdminProduct(created);
     const next = [...productsRef.current, dup];
     setProducts(next);
     productsRef.current = next;
     save();
+    window.dispatchEvent(new CustomEvent("wildhive-products-changed"));
     return dup;
   }, [save]);
 
@@ -258,6 +451,56 @@ export function useAdminProducts() {
   const ctx = useContext(AdminProductContext);
   if (!ctx) throw new Error("useAdminProducts must be used within AdminProductProvider");
   return ctx;
+}
+
+// ── Helper: merge API categories with default subcategories ───────
+function mergeWithDefaults(apiTree: CategoryNode[], defaults: CategoryNode[]): CategoryNode[] {
+  const result: CategoryNode[] = [];
+  const apiMap = new Map(apiTree.map(c => [c.name.toLowerCase(), c]));
+
+  for (const def of defaults) {
+    const apiCat = apiMap.get(def.name.toLowerCase());
+    if (apiCat) {
+      const existingChildNames = new Set(apiCat.children.map(c => c.name.toLowerCase()));
+      const mergedChildren = [...apiCat.children];
+      for (const defChild of def.children) {
+        if (!existingChildNames.has(defChild.name.toLowerCase())) {
+          mergedChildren.push(defChild);
+        }
+      }
+      result.push({ ...apiCat, children: mergedChildren });
+      apiMap.delete(def.name.toLowerCase());
+    } else {
+      result.push(def);
+    }
+  }
+
+  for (const apiCat of apiMap.values()) {
+    result.push(apiCat);
+  }
+
+  return result;
+}
+
+// ── Helper: build tree from flat API categories ───────
+function buildCategoryTree(cats: Array<{ id: string; name: string; slug: string; parent_id: string | null }>): CategoryNode[] {
+  const map = new Map<string, CategoryNode>();
+  const roots: CategoryNode[] = [];
+
+  for (const c of cats) {
+    map.set(c.id, { id: c.id, name: c.name, slug: c.slug, children: [] });
+  }
+
+  for (const c of cats) {
+    const node = map.get(c.id)!;
+    if (c.parent_id && map.has(c.parent_id)) {
+      map.get(c.parent_id)!.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+
+  return roots;
 }
 
 function addchild(node: CategoryNode, parentId: string, child: CategoryNode): CategoryNode {

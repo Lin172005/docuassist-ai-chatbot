@@ -17,7 +17,7 @@ function ProductJar({ color }: { color: string }) {
 }
 
 export default function ProductsPage() {
-  const { getActiveProducts, getProductsByCategory } = useProductContext();
+  const { getActiveProducts, error, isLoading, refresh } = useProductContext();
 
   const allActive = useMemo(() => getActiveProducts(), [getActiveProducts]);
   const honeyProducts = useMemo(() => allActive.filter(p => p.category === "Honey"), [allActive]);
@@ -27,12 +27,11 @@ export default function ProductsPage() {
   const honeyTypes = useMemo(() => [...new Set(honeyProducts.map(p => p.type))], [honeyProducts]);
 
   const categories = useMemo(() => [
-    { name: "All Products", icon: "▦", count: allActive.length + 2 },
+    { name: "All Products", icon: "▦", count: allActive.length },
     { name: "Honey Varieties", icon: "♧", count: honeyProducts.length },
-    { name: "Bee Boxes", icon: "□", count: equipmentProducts.filter(e => e.name.toLowerCase().includes("box")).length || 1 },
+    { name: "Bee Boxes", icon: "□", count: equipmentProducts.filter(e => e.name.toLowerCase().includes("box")).length },
     { name: "Beekeeping Equipment", icon: "♧", count: equipmentProducts.length },
     { name: "Bees for Sale", icon: "✽", count: beeProducts.length },
-    { name: "Training & Courses", icon: "♧", count: 1 },
   ], [allActive, honeyProducts, equipmentProducts, beeProducts]);
 
   const [query, setQuery] = useState("");
@@ -53,7 +52,7 @@ export default function ProductsPage() {
   const showHoney = category === "All Products" || category === "Honey Varieties";
   const showEquipment = category === "All Products" || category === "Beekeeping Equipment" || category === "Bee Boxes";
   const showBees = category === "All Products" || category === "Bees for Sale";
-  const showTraining = category === "All Products" || category === "Training & Courses";
+  const showTraining = false;
 
   const filteredProducts = useMemo(() => {
     let result = [...honeyProducts];
@@ -99,6 +98,20 @@ export default function ProductsPage() {
 
   const activeFilterCount = selectedTypes.length + selectedSizes.length;
   const hasAnyContent = showHoney || showEquipment || showBees || showTraining;
+
+  if (isLoading) {
+    return <main className="products-page flex min-h-screen items-center justify-center bg-[#fbfaf5] text-sm text-[#657168]">Loading products...</main>;
+  }
+
+  if (error) {
+    return (
+      <main className="products-page flex min-h-screen flex-col items-center justify-center gap-3 bg-[#fbfaf5] px-6 text-center text-[#243b2a]">
+        <p className="text-lg font-semibold">Products could not be loaded.</p>
+        <p className="text-sm text-[#657168]">Please check your connection and try again.</p>
+        <button onClick={refresh} className="rounded-full bg-[#19553a] px-5 py-2 text-xs font-semibold text-white">Retry</button>
+      </main>
+    );
+  }
 
   return (
     <main className="products-page min-h-screen bg-[#fbfaf5] text-[#243b2a]">
@@ -224,11 +237,9 @@ export default function ProductsPage() {
           {/* Product Count */}
           <p className="mb-3 text-xs text-[#879088]">
             {category === "All Products"
-              ? `Showing all ${allActive.length + 2} items`
+              ? `Showing all ${allActive.length} items`
               : category === "Bee Boxes"
                 ? `Showing 1 item`
-                : category === "Training & Courses"
-                  ? `Showing 1 item`
                   : `Showing ${category === "Honey Varieties" ? filteredProducts.length : category === "Beekeeping Equipment" ? filteredEquipment.length : beeProducts.length} items`}
           </p>
 
@@ -258,7 +269,7 @@ export default function ProductsPage() {
                           <strong>{product.priceLabel}</strong>
                           <span>{product.size}</span>
                         </div>
-                        <a href="/contact">Enquire Now</a>
+                        <a href={`/products/${product.id}`}>View Product</a>
                       </div>
                     </article>
                   ))}

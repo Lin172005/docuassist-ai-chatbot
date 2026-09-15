@@ -24,12 +24,13 @@ function emptyProduct(): Omit<AdminProduct, "id" | "createdAt" | "updatedAt"> {
 
 export default function ProductManagementPage() {
   const { role } = useAdmin();
-  const { products, fieldConfigs, categories, customFields, addProduct, updateProduct, deleteProduct, duplicateProduct, addFieldConfig, updateFieldConfig, removeFieldConfig, addCategory, removeCategory, renameCategory, addCustomField, removeCustomField, updateCustomField } = useAdminProducts();
+  const { products, fieldConfigs, categories, customFields, isLoading, addProduct, updateProduct, deleteProduct, duplicateProduct, addFieldConfig, updateFieldConfig, removeFieldConfig, addCategory, removeCategory, renameCategory, addCustomField, removeCustomField, updateCustomField } = useAdminProducts();
   const canEdit = role === "admin" || role === "editor";
 
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [updatedFilter, setUpdatedFilter] = useState("All");
   const [sortField, setSortField] = useState<SortField>("updatedAt");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState(1);
@@ -47,6 +48,8 @@ export default function ProductManagementPage() {
   const [tagInput, setTagInput] = useState("");
   const [variantAttrInput, setVariantAttrInput] = useState("");
   const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   const allCategories = useMemo(() => {
     const flat: string[] = [];
@@ -60,9 +63,14 @@ export default function ProductManagementPage() {
     if (search) { const q = search.toLowerCase(); result = result.filter(p => p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q)); }
     if (categoryFilter !== "All") result = result.filter(p => p.category === categoryFilter);
     if (statusFilter !== "All") result = result.filter(p => p.status === statusFilter);
+    if (updatedFilter !== "All") {
+      const days = updatedFilter === "Today" ? 1 : 7;
+      const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+      result = result.filter(p => new Date(p.updatedAt).getTime() >= cutoff);
+    }
     result.sort((a, b) => { const av = a[sortField]; const bv = b[sortField]; if (typeof av === "string" && typeof bv === "string") return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av); return sortDir === "asc" ? (av as number) - (bv as number) : (bv as number) - (av as number); });
     return result;
-  }, [products, search, categoryFilter, statusFilter, sortField, sortDir]);
+  }, [products, search, categoryFilter, statusFilter, updatedFilter, sortField, sortDir]);
 
   const totalPages = Math.ceil(filtered.length / perPage);
   const paginated = filtered.slice((page - 1) * perPage, page * perPage);
@@ -74,19 +82,48 @@ export default function ProductManagementPage() {
   function openCreate() { setEditingId(null); setFormData(emptyProduct()); setFormTab("basic"); setShowForm(true); }
   function openEdit(id: string) { const p = products.find(x => x.id === id); if (!p) return; const { id: _, createdAt: _c, updatedAt: _u, ...rest } = p; setEditingId(id); setFormData(rest); setFormTab("basic"); setShowForm(true); }
 
-  function handleSave() {
-    if (!formData.name.trim()) return;
+  async function handleSave() {
+    if (!formData.name.trim()) {
+      setNotice({ type: "error", message: "Product name is required." });
+      return;
+    }
     const slug = formData.slug || slugify(formData.name);
     const sku = formData.sku || generateSku(formData.category || "PRD", products.length);
     const barcode = formData.barcode || generateBarcode();
     const data = { ...formData, slug, sku, barcode };
-    if (editingId) { updateProduct(editingId, data); }
-    else { addProduct(data); }
-    setShowForm(false);
+    setSaving(true);
+    setNotice(null);
+    try {
+      const saved = editingId
+        ? await updateProduct(editingId, data)
+        : await addProduct(data);
+      setShowForm(false);
+      setNotice({ type: "success", message: `${saved.name} was ${editingId ? "updated" : "created"} successfully.` });
+    } catch (error) {
+      setNotice({ type: "error", message: error instanceof Error ? error.message : "Product could not be saved." });
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function handleDelete(id: string) { deleteProduct(id); setConfirmDelete(null); setSelected(prev => { const n = new Set(prev); n.delete(id); return n; }); }
-  function handleDuplicate(id: string) { duplicateProduct(id); }
+  async function handleDelete(id: string) {
+    try {
+      await deleteProduct(id);
+      setConfirmDelete(null);
+      setSelected(prev => { const n = new Set(prev); n.delete(id); return n; });
+      setNotice({ type: "success", message: "Product deleted successfully." });
+    } catch (error) {
+      setNotice({ type: "error", message: error instanceof Error ? error.message : "Product could not be deleted." });
+    }
+  }
+  async function handleDuplicate(id: string) {
+    try {
+      const duplicate = await duplicateProduct(id);
+      if (duplicate) setNotice({ type: "success", message: `${duplicate.name} was created as a draft.` });
+    } catch (error) {
+      setNotice({ type: "error", message: error instanceof Error ? error.message : "Product could not be duplicated." });
+    }
+  }
 
   function addTag(tag: string) { if (tag && !formData.tags.includes(tag)) setFormData(d => ({ ...d, tags: [...d.tags, tag] })); }
   function removeTag(tag: string) { setFormData(d => ({ ...d, tags: d.tags.filter(t => t !== tag) })); }
@@ -128,26 +165,34 @@ export default function ProductManagementPage() {
   }, [enabledFields]);
 
   return (
-    <div>
+    <div className="admin-product-page">
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Product Management</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">{filtered.length} products</p>
+          <p className="admin-eyebrow">Admin panel</p>
+          <h1 className="text-2xl font-bold text-[#243b2a] dark:text-white">Product Management</h1>
+          <p className="text-sm text-[#657168] dark:text-gray-400">Manage your honey products, update details, stock and status.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {canEdit && (
             <>
-              <button onClick={() => setShowFieldManager(true)} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">Fields</button>
-              <button onClick={() => setShowCategoryManager(true)} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">Categories</button>
-              <button onClick={() => setShowCustomFieldManager(true)} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">Custom Fields</button>
-              <button onClick={openCreate} className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-600">+ New Product</button>
+              <details className="admin-manage-menu">
+                <summary>Manage</summary>
+                <div>
+                  <button onClick={() => setShowFieldManager(true)}>Fields</button>
+                  <button onClick={() => setShowCustomFieldManager(true)}>Custom Fields</button>
+                </div>
+              </details>
+              <button onClick={() => setShowCategoryManager(true)} className="admin-tool-button rounded-full border px-4 py-2.5 text-sm font-medium transition">Categories</button>
+              <button onClick={openCreate} className="admin-primary-button rounded-full px-5 py-2.5 text-sm font-semibold text-white transition">Add Product <span className="ml-1">+</span></button>
             </>
           )}
         </div>
       </div>
 
-      <div className="mb-4 flex flex-wrap gap-3">
-        <input type="text" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder="Search name, ID, SKU..." className="min-w-[200px] flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 dark:border-gray-700 dark:bg-gray-800" aria-label="Search products" />
+      {notice && <div className={`admin-notice ${notice.type === "success" ? "admin-notice-success" : "admin-notice-error"}`} role="status">{notice.message}<button onClick={() => setNotice(null)} aria-label="Dismiss notification">×</button></div>}
+
+      <div className="admin-toolbar mb-4 flex flex-wrap gap-3">
+          <input type="text" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder="Search products..." className="min-w-[200px] flex-1 rounded-full border border-gray-200 bg-white px-4 py-2.5 text-sm outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 dark:border-gray-200 dark:bg-white" aria-label="Search products" />
         <select value={categoryFilter} onChange={e => { setCategoryFilter(e.target.value); setPage(1); }} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800" aria-label="Filter by category">
           <option value="All">All Categories</option>
           {allCategories.map(c => <option key={c} value={c}>{c}</option>)}
@@ -155,14 +200,17 @@ export default function ProductManagementPage() {
         <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800" aria-label="Filter by status">
           {["All", "published", "draft", "archived"].map(s => <option key={s} value={s}>{s === "All" ? "All Statuses" : s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
         </select>
+        <select value={updatedFilter} onChange={e => { setUpdatedFilter(e.target.value); setPage(1); }} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800" aria-label="Filter by last updated">
+          <option value="All">Last Updated</option><option value="Today">Today</option><option value="Week">Last 7 days</option>
+        </select>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
-        <table className="w-full text-left text-sm" role="grid">
+      <div className="admin-table-shell overflow-x-auto rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+        <table className="w-full min-w-[760px] text-left text-sm" role="grid">
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wider text-gray-500 dark:border-gray-800 dark:bg-gray-800/50 dark:text-gray-400">
               {canEdit && <th className="w-10 px-4 py-3"><input type="checkbox" checked={selected.size === paginated.length && paginated.length > 0} onChange={toggleSelectAll} className="rounded" aria-label="Select all" /></th>}
-              {(["id", "name", "category", "price", "stock", "status", "updatedAt"] as SortField[]).map(f => (
+              {(["name", "id", "category", "price", "stock", "status", "updatedAt"] as SortField[]).map(f => (
                 <th key={f} className="cursor-pointer px-4 py-3" onClick={() => handleSort(f)}>
                   {f === "updatedAt" ? "Updated" : f.charAt(0).toUpperCase() + f.slice(1)}
                   {sortField === f && <span className="ml-1 text-amber-500">{sortDir === "asc" ? "↑" : "↓"}</span>}
@@ -172,14 +220,19 @@ export default function ProductManagementPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-            {paginated.map(product => (
+            {isLoading && <tr><td colSpan={canEdit ? 9 : 8} className="px-4 py-12 text-center text-[#657168]">Loading products...</td></tr>}
+            {!isLoading && paginated.map(product => (
               <tr key={product.id} className={`transition hover:bg-gray-50 dark:hover:bg-gray-800/50 ${selected.has(product.id) ? "bg-amber-50/50 dark:bg-amber-500/5" : ""}`}>
                 {canEdit && <td className="px-4 py-3"><input type="checkbox" checked={selected.has(product.id)} onChange={() => toggleSelect(product.id)} className="rounded" aria-label={`Select ${product.name}`} /></td>}
-                <td className="px-4 py-3 font-mono text-xs text-gray-500 dark:text-gray-400">{product.id}</td>
                 <td className="px-4 py-3">
-                  <p className="font-medium text-gray-900 dark:text-white">{product.name}</p>
-                  <p className="text-xs text-gray-400">{product.sku}</p>
+                  <div className="flex items-center gap-3">
+                    <div className="admin-product-thumb">
+                      {product.images[0]?.url ? <img src={product.images[0].url} alt={product.images[0].alt || product.name} /> : <span>WH</span>}
+                    </div>
+                    <div><p className="font-medium text-gray-900 dark:text-white">{product.name}</p><p className="text-xs text-gray-400">{product.description || product.sku}</p></div>
+                  </div>
                 </td>
+                <td className="px-4 py-3 font-mono text-xs text-gray-500 dark:text-gray-400">{product.id}</td>
                 <td className="px-4 py-3"><span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-400">{product.category}</span></td>
                 <td className="px-4 py-3">
                   <div className="font-medium">{formatCurrency(product.price, product.currency)}</div>
@@ -191,11 +244,25 @@ export default function ProductManagementPage() {
                   </span>
                 </td>
                 <td className="px-4 py-3">
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                    product.status === "published" ? "bg-green-50 text-green-600 dark:bg-green-500/10 dark:text-green-400" :
-                    product.status === "archived" ? "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400" :
-                    "bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400"
-                  }`}>{product.status}</span>
+                  <select
+                    value={product.status}
+                    onChange={async event => {
+                      try {
+                        await updateProduct(product.id, { status: event.target.value as AdminProduct["status"] });
+                        setNotice({ type: "success", message: "Product status updated successfully." });
+                      } catch (error) {
+                        setNotice({ type: "error", message: error instanceof Error ? error.message : "Product status could not be updated." });
+                      }
+                    }}
+                    className={`rounded-full border-0 px-2 py-0.5 text-xs font-semibold ${
+                      product.status === "published" ? "bg-green-50 text-green-600" :
+                      product.status === "archived" ? "bg-gray-100 text-gray-500" :
+                      "bg-amber-50 text-amber-600"
+                    }`}
+                    aria-label={`Change status for ${product.name}`}
+                  >
+                    <option value="published">published</option><option value="draft">draft</option><option value="archived">archived</option>
+                  </select>
                 </td>
                 <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">{product.updatedAt.slice(0, 10)}</td>
                 {canEdit && (
@@ -209,7 +276,7 @@ export default function ProductManagementPage() {
                 )}
               </tr>
             ))}
-            {paginated.length === 0 && (
+            {!isLoading && paginated.length === 0 && (
               <tr><td colSpan={canEdit ? 9 : 8} className="px-4 py-12 text-center text-gray-400">No products match your filters.</td></tr>
             )}
           </tbody>
@@ -232,7 +299,7 @@ export default function ProductManagementPage() {
       {/* ============ PRODUCT FORM MODAL ============ */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-8" onClick={() => setShowForm(false)}>
-          <div className="w-full max-w-3xl rounded-xl bg-white shadow-2xl dark:bg-gray-900" onClick={e => e.stopPropagation()}>
+          <div className="admin-modal w-full max-w-3xl rounded-xl bg-white shadow-2xl dark:bg-gray-900" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-800">
               <h2 className="text-lg font-bold text-gray-900 dark:text-white">{editingId ? "Edit Product" : "New Product"}</h2>
               <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600">✕</button>
@@ -568,7 +635,7 @@ export default function ProductManagementPage() {
               </div>
               <div className="flex gap-2">
                 <button onClick={() => setShowForm(false)} className="rounded-lg px-4 py-2 text-sm text-gray-600 transition hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800">Cancel</button>
-                <button onClick={handleSave} className="rounded-lg bg-amber-500 px-5 py-2 text-sm font-semibold text-white transition hover:bg-amber-600">{editingId ? "Save Changes" : "Create Product"}</button>
+                <button onClick={handleSave} disabled={saving} className="admin-primary-button rounded-lg px-5 py-2 text-sm font-semibold text-white transition disabled:cursor-wait disabled:opacity-60">{saving ? "Saving…" : editingId ? "Save Changes" : "Create Product"}</button>
               </div>
             </div>
           </div>
