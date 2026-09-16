@@ -1,21 +1,15 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { type Product, seedProducts } from "@/lib/products";
-import type { AdminProduct } from "@/lib/admin-products";
-
-const ADMIN_STORAGE_KEY = "wildhive-admin";
-const ADMIN_STORAGE_VERSION = 1;
-
-interface AdminStoredData {
-  version: number;
-  products: AdminProduct[];
-}
+import { type Product } from "@/lib/products";
+import { getProducts, type ApiProduct } from "@/lib/api";
 
 interface ProductContextType {
   products: Product[];
   isLoading: boolean;
+  error: string | null;
   lastSynced: Date | null;
+  refresh: () => void;
 
   updateProduct: (id: string, updates: Partial<Product>) => void;
   deleteProduct: (id: string, permanent: boolean) => void;
@@ -40,131 +34,107 @@ const COLOR_MAP: Record<string, string> = {
   Blend: "#e0b050",
 };
 
-function mapAdminToProduct(p: AdminProduct): Product {
-  const currencySymbol = p.currency === "USD" ? "$" : p.currency === "EUR" ? "€" : p.currency === "GBP" ? "£" : "₹";
+function mapApiToProduct(p: ApiProduct): Product {
   return {
     id: p.id,
     name: p.name,
-    description: p.description,
-    category: p.category,
+    description: p.description || p.full_description || "",
+    category: p.category_name || "Uncategorized",
     price: p.price,
-    priceLabel: `${currencySymbol}${p.price.toLocaleString("en-IN")}`,
-    color: COLOR_MAP[p.subcategory] || "#d99b24",
-    type: p.subcategory || p.category,
+    priceLabel: `₹${p.price.toLocaleString("en-IN")}`,
+    color: COLOR_MAP[p.subcategory || ""] || "#d99b24",
+    type: p.subcategory || p.category_name || "",
     size: p.variants?.[0]?.attributes?.size || "500 g",
     rating: "4.8",
     reviews: 200,
     images: (p.images || []).map(img => ({ id: img.id, url: img.url, alt: img.alt })),
     stock: p.stock,
     status: p.status === "published" ? "active" : p.status === "archived" ? "archived" : "inactive",
-    lastUpdated: p.updatedAt?.slice(0, 10) || "",
-    lowStockThreshold: p.lowStockThreshold,
-    createdAt: p.createdAt,
+    lastUpdated: p.updated_at?.slice(0, 10) || "",
+    lowStockThreshold: p.low_stock_threshold,
+    createdAt: p.created_at,
   };
 }
 
-function loadFreshProducts(): Product[] {
-  if (typeof window === "undefined") return seedProducts;
-  try {
-    const raw = localStorage.getItem(ADMIN_STORAGE_KEY);
-    if (!raw) return seedProducts;
-    const data: AdminStoredData = JSON.parse(raw);
-    if (data.version !== ADMIN_STORAGE_VERSION) return seedProducts;
-    if (!Array.isArray(data.products)) return seedProducts;
-    return data.products.map(mapAdminToProduct);
-  } catch {
-    return seedProducts;
-  }
+async function fetchProducts(): Promise<Product[]> {
+  const res = await getProducts({ per_page: 100 });
+  return res.products.map(mapApiToProduct);
 }
 
 export function ProductProvider({ children }: { children: React.ReactNode }) {
-  const [products, setProducts] = useState<Product[]>(seedProducts);
+  const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
 
-  const refreshFromStorage = useCallback(() => {
-    setProducts(loadFreshProducts());
-    setLastSynced(new Date());
+  useEffect(() => {
+    fetchProducts()
+      .then((p) => {
+        setProducts(p);
+        setError(null);
+        setLastSynced(new Date());
+      })
+      .catch((reason: unknown) => {
+        setError(reason instanceof Error ? reason.message : "Products could not be loaded.");
+      })
+      .finally(() => setIsLoading(false));
   }, []);
 
-  // Load on mount (handles direct URL navigation)
   useEffect(() => {
-    refreshFromStorage();
-    setIsLoading(false);
-  }, [refreshFromStorage]);
-
-  // Sync from other tabs via storage event (cross-tab)
-  useEffect(() => {
-    function onStorageChange(e: StorageEvent) {
-      if (e.key !== ADMIN_STORAGE_KEY) return;
-      try {
-        if (!e.newValue) return;
-        const data: AdminStoredData = JSON.parse(e.newValue);
-        if (data.version === ADMIN_STORAGE_VERSION && Array.isArray(data.products)) {
-          setProducts(data.products.map(mapAdminToProduct));
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        fetchProducts().then((p) => {
+          setProducts(p);
+          setError(null);
           setLastSynced(new Date());
-        }
-      } catch { /* corrupted */ }
+        }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Products could not be loaded."));
+      }
     }
-    window.addEventListener("storage", onStorageChange);
-    return () => window.removeEventListener("storage", onStorageChange);
-  }, []);
-
-  // Re-read when page becomes visible (handles same-tab SPA back/forward navigation)
-  useEffect(() => {
-    function onVisible() {
-      if (document.visibilityState === "visible") refreshFromStorage();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    function handleProductsChanged() {
+      fetchProducts().then((p) => {
+        setProducts(p);
+        setError(null);
+        setLastSynced(new Date());
+      }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Products could not be loaded."));
     }
-    function onFocus() { refreshFromStorage(); }
-
-    document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("focus", onFocus);
+    window.addEventListener("wildhive-products-changed", handleProductsChanged);
     return () => {
-      document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("wildhive-products-changed", handleProductsChanged);
     };
-  }, [refreshFromStorage]);
-
-  const updateProduct = useCallback((_id: string, _updates: Partial<Product>) => {
-    // Storefront is read-only — admin manages all data
   }, []);
 
-  const deleteProduct = useCallback((_id: string, _permanent: boolean) => {
-    // Storefront is read-only
+  const refresh = useCallback(() => {
+    setIsLoading(true);
+    fetchProducts().then((p) => {
+      setProducts(p);
+      setError(null);
+      setLastSynced(new Date());
+    }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Products could not be loaded.")).finally(() => setIsLoading(false));
   }, []);
 
-  const addProduct = useCallback((_product: Omit<Product, "createdAt">) => {
-    // Storefront is read-only
-  }, []);
-
-  const restoreProduct = useCallback((_id: string) => {
-    // Storefront is read-only
-  }, []);
-
-  const bulkUpdate = useCallback((_ids: string[], _updates: Partial<Product>) => {
-    // Storefront is read-only
-  }, []);
-
-  const bulkDelete = useCallback((_ids: string[], _permanent: boolean) => {
-    // Storefront is read-only
-  }, []);
+  const updateProduct = useCallback((_id: string, _updates: Partial<Product>) => {}, []);
+  const deleteProduct = useCallback((_id: string, _permanent: boolean) => {}, []);
+  const addProduct = useCallback((_product: Omit<Product, "createdAt">) => {}, []);
+  const restoreProduct = useCallback((_id: string) => {}, []);
+  const bulkUpdate = useCallback((_ids: string[], _updates: Partial<Product>) => {}, []);
+  const bulkDelete = useCallback((_ids: string[], _permanent: boolean) => {}, []);
 
   const getActiveProducts = useCallback(() => products.filter(p => p.status === "active"), [products]);
-
   const getProductsByCategory = useCallback(
     (category: string) => products.filter(p => p.status === "active" && p.category === category),
-    [products]
+    [products],
   );
-
   const getProductById = useCallback((id: string) => products.find(p => p.id === id), [products]);
 
   const value = useMemo<ProductContextType>(
     () => ({
-      products, isLoading, lastSynced,
+      products, isLoading, error, lastSynced, refresh,
       updateProduct, deleteProduct, addProduct, restoreProduct, bulkUpdate, bulkDelete,
       getActiveProducts, getProductsByCategory, getProductById,
     }),
-    [products, isLoading, lastSynced, updateProduct, deleteProduct, addProduct, restoreProduct, bulkUpdate, bulkDelete, getActiveProducts, getProductsByCategory, getProductById]
+    [products, isLoading, error, lastSynced, refresh, updateProduct, deleteProduct, addProduct, restoreProduct, bulkUpdate, bulkDelete, getActiveProducts, getProductsByCategory, getProductById],
   );
 
   return <ProductContext.Provider value={value}>{children}</ProductContext.Provider>;

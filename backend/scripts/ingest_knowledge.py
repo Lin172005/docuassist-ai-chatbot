@@ -1,6 +1,13 @@
 import hashlib
 import json
+import sys
+from pathlib import Path
 from typing import Any
+
+# Ensure backend root is in sys.path when running script directly
+backend_root = str(Path(__file__).resolve().parents[1])
+if backend_root not in sys.path:
+    sys.path.insert(0, backend_root)
 
 from sqlalchemy import text
 
@@ -80,6 +87,14 @@ def source_is_current(
     return True
 
 
+def check_vector_extension() -> bool:
+    with engine.connect() as connection:
+        res = connection.execute(
+            text("select coalesce(to_regtype('extensions.vector'), to_regtype('vector')) is not null")
+        ).scalar()
+        return bool(res)
+
+
 def ingest_source(source: dict[str, Any]) -> str:
     chunks = chunk_text(source["content"])
 
@@ -89,6 +104,7 @@ def ingest_source(source: dict[str, Any]) -> str:
     if source_is_current(source["id"], chunks):
         return "unchanged"
 
+    has_vector = check_vector_extension()
     prepared_chunks = []
 
     for index, chunk in enumerate(chunks):
@@ -118,9 +134,58 @@ def ingest_source(source: dict[str, Any]) -> str:
                 "content_hash": create_hash(chunk),
                 "metadata": json.dumps(chunk_metadata),
                 "embedding_model": embedding_model,
-                "embedding": serialize_embedding(embedding),
+                "embedding": (
+                    serialize_embedding(embedding)
+                    if has_vector
+                    else embedding
+                ),
             }
         )
+
+    insert_sql = (
+        """
+        insert into public.knowledge_chunks (
+            source_id,
+            chunk_index,
+            content,
+            content_hash,
+            metadata,
+            embedding_model,
+            embedding
+        )
+        values (
+            :source_id,
+            :chunk_index,
+            :content,
+            :content_hash,
+            cast(:metadata as jsonb),
+            :embedding_model,
+            cast(:embedding as extensions.vector)
+        )
+        """
+        if has_vector
+        else
+        """
+        insert into public.knowledge_chunks (
+            source_id,
+            chunk_index,
+            content,
+            content_hash,
+            metadata,
+            embedding_model,
+            embedding
+        )
+        values (
+            :source_id,
+            :chunk_index,
+            :content,
+            :content_hash,
+            cast(:metadata as jsonb),
+            :embedding_model,
+            :embedding
+        )
+        """
+    )
 
     with engine.begin() as connection:
         connection.execute(
@@ -135,28 +200,7 @@ def ingest_source(source: dict[str, Any]) -> str:
 
         for chunk in prepared_chunks:
             connection.execute(
-                text(
-                    """
-                    insert into public.knowledge_chunks (
-                        source_id,
-                        chunk_index,
-                        content,
-                        content_hash,
-                        metadata,
-                        embedding_model,
-                        embedding
-                    )
-                    values (
-                        :source_id,
-                        :chunk_index,
-                        :content,
-                        :content_hash,
-                        cast(:metadata as jsonb),
-                        :embedding_model,
-                        cast(:embedding as extensions.vector)
-                    )
-                    """
-                ),
+                text(insert_sql),
                 chunk,
             )
 

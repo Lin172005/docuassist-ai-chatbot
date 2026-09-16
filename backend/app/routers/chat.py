@@ -26,7 +26,10 @@ def chat(request: ChatRequest) -> ChatResponse:
             conversation_history=request.conversation_history,
         )
 
-        results = retrieve_knowledge(retrieval_query)
+        results = retrieve_knowledge(
+            query=retrieval_query,
+            raw_message=request.message,
+        )
         knowledge_context = format_knowledge_context(results)
 
         reply, interaction_id = generate_reply(

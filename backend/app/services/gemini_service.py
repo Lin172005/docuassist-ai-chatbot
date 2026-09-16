@@ -40,10 +40,14 @@ Rules:
 """
 
 
+import time
+
+
 def generate_reply(
     message: str,
     knowledge_context: str,
     previous_interaction_id: str | None = None,
+    max_retries: int = 3,
 ) -> tuple[str, str]:
     model_input = f"""
 <retrieved_knowledge>
@@ -57,20 +61,37 @@ def generate_reply(
 Answer the customer message using the retrieved knowledge.
 """.strip()
 
-    interaction = client.interactions.create(
-        model=model_name,
-        system_instruction=SYSTEM_INSTRUCTION,
-        input=model_input,
-        previous_interaction_id=previous_interaction_id,
-        generation_config={
-            "temperature": 0.2,
-            "thinking_level": "low",
-        },
-    )
+    last_error: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            interaction = client.interactions.create(
+                model=model_name,
+                system_instruction=SYSTEM_INSTRUCTION,
+                input=model_input,
+                previous_interaction_id=previous_interaction_id,
+                generation_config={
+                    "temperature": 0.2,
+                    "thinking_level": "low",
+                },
+            )
 
-    reply = interaction.output_text
+            reply = interaction.output_text
 
-    if not reply:
-        raise RuntimeError("Gemini returned an empty response.")
+            if not reply:
+                raise RuntimeError("Gemini returned an empty response.")
 
-    return reply.strip(), str(interaction.id)
+            return reply.strip(), str(interaction.id)
+        except Exception as err:
+            last_error = err
+            error_str = str(err).lower()
+            # If invalid API key or bad request, do not retry
+            if "invalid_argument" in error_str or "api_key_invalid" in error_str or "400" in error_str:
+                break
+            # Retry on rate limit (429) or transient server errors (500, 503)
+            if attempt < max_retries - 1:
+                sleep_sec = 2 ** attempt
+                time.sleep(sleep_sec)
+
+    if last_error:
+        raise last_error
+    raise RuntimeError("Failed to generate reply.")

@@ -1,8 +1,14 @@
 import hashlib
 import json
+import sys
+from pathlib import Path
+
+# Ensure backend root is in sys.path when running script directly
+backend_root = str(Path(__file__).resolve().parents[1])
+if backend_root not in sys.path:
+    sys.path.insert(0, backend_root)
 
 from sqlalchemy import text
-
 from app.database import engine
 
 
@@ -89,51 +95,69 @@ def create_hash(content: str) -> str:
 def seed_products() -> None:
     with engine.begin() as connection:
         for product in PRODUCTS:
-            product_id = connection.execute(
-                text(
-                    """
-                    insert into public.products (
-                        sku,
-                        slug,
-                        name,
-                        short_description,
-                        full_description,
-                        price_inr,
-                        weight_grams,
-                        flavour_profile,
-                        source_description
-                    )
-                    values (
-                        :sku,
-                        :slug,
-                        :name,
-                        :short_description,
-                        :full_description,
-                        :price_inr,
-                        :weight_grams,
-                        :flavour_profile,
-                        :source_description
-                    )
-                    on conflict (sku)
-                    do update set
-                        slug = excluded.slug,
-                        name = excluded.name,
-                        short_description =
-                            excluded.short_description,
-                        full_description =
-                            excluded.full_description,
-                        price_inr = excluded.price_inr,
-                        weight_grams = excluded.weight_grams,
-                        flavour_profile =
-                            excluded.flavour_profile,
-                        source_description =
-                            excluded.source_description,
-                        is_active = true
-                    returning id
-                    """
-                ),
-                product,
-            ).scalar_one()
+            existing = connection.execute(
+                text("select id from public.products where sku = :sku or slug = :slug limit 1"),
+                {"sku": product["sku"], "slug": product["slug"]},
+            ).fetchone()
+
+            if existing:
+                product_id = existing[0]
+                connection.execute(
+                    text(
+                        """
+                        update public.products
+                        set
+                            sku = :sku,
+                            slug = :slug,
+                            name = :name,
+                            short_description = :short_description,
+                            full_description = :full_description,
+                            price_inr = :price_inr,
+                            weight_grams = :weight_grams,
+                            flavour_profile = :flavour_profile,
+                            source_description = :source_description,
+                            is_active = true,
+                            status = 'published'
+                        where id = :id
+                        """
+                    ),
+                    {**product, "id": product_id},
+                )
+            else:
+                product_id = connection.execute(
+                    text(
+                        """
+                        insert into public.products (
+                            sku,
+                            slug,
+                            name,
+                            short_description,
+                            full_description,
+                            price_inr,
+                            weight_grams,
+                            flavour_profile,
+                            source_description,
+                            is_active,
+                            status
+                        )
+                        values (
+                            :sku,
+                            :slug,
+                            :name,
+                            :short_description,
+                            :full_description,
+                            :price_inr,
+                            :weight_grams,
+                            :flavour_profile,
+                            :source_description,
+                            true,
+                            'published'
+                        )
+                        returning id
+                        """
+                    ),
+                    product,
+                ).scalar_one()
 
             knowledge_content = (
                 f"{product['name']} is a {product['weight_grams']} gram "

@@ -53,8 +53,27 @@ def build_retrieval_query(
     )
 
 
+_has_vector_type: bool | None = None
+
+
+def has_vector_support() -> bool:
+    global _has_vector_type
+    if _has_vector_type is not None:
+        return _has_vector_type
+    try:
+        with engine.connect() as connection:
+            res = connection.execute(
+                text("select coalesce(to_regtype('extensions.vector'), to_regtype('vector')) is not null")
+            ).scalar()
+            _has_vector_type = bool(res)
+    except Exception:
+        _has_vector_type = False
+    return _has_vector_type
+
+
 def retrieve_knowledge(
     query: str,
+    raw_message: str | None = None,
     match_count: int = 4,
     match_threshold: float = 0.45,
     semantic_weight: float = 1.0,
@@ -69,21 +88,80 @@ def retrieve_knowledge(
     if match_count <= 0:
         raise ValueError("match_count must be greater than zero.")
 
-    query_embedding = create_query_embedding(cleaned_query)
-    serialized_embedding = serialize_embedding(query_embedding)
+    # Extract user search text for FTS to avoid conversational instructions corrupting websearch_to_tsquery
+    fts_candidate = (raw_message or cleaned_query).strip()
+    if "Current customer question:" in fts_candidate:
+        fts_candidate = fts_candidate.split("Current customer question:")[-1].strip()
+    fts_query = fts_candidate or cleaned_query
 
     candidate_count = max(match_count * 3, 10)
 
+    # Try embedding generation; if offline/invalid key, fallback to pure FTS
+    query_embedding: list[float] | None = None
+    serialized_embedding: str | None = None
+    try:
+        query_embedding = create_query_embedding(cleaned_query)
+        serialized_embedding = serialize_embedding(query_embedding)
+    except Exception as emb_err:
+        print(f"Warning: Semantic embedding generation failed: {emb_err}. Falling back to FTS.")
+
+    has_vector = has_vector_support()
+
     with engine.connect() as connection:
-        rows = connection.execute(
-            text(
-                """
+        if query_embedding is None:
+            # Pure Full-Text Search fallback
+            rows = connection.execute(
+                text(
+                    """
+                    select
+                        kc.id::text as chunk_id,
+                        ks.title as source_title,
+                        ks.source_type,
+                        kc.content,
+                        kc.metadata,
+                        p.name as product_name,
+                        p.sku as product_sku,
+                        p.price_inr as product_price_inr,
+                        p.weight_grams as product_weight_grams,
+                        p.flavour_profile as product_flavour_profile,
+                        0.5::double precision as similarity,
+                        ts_rank_cd(
+                            kc.fts,
+                            websearch_to_tsquery('english', :fts_query)
+                        )::double precision as retrieval_score
+                    from public.knowledge_chunks kc
+                    join public.knowledge_sources ks
+                        on ks.id = kc.source_id
+                    left join public.products p
+                        on p.id = ks.product_id
+                    where ks.is_active = true
+                      and (
+                          p.id is null
+                          or p.is_active = true
+                      )
+                      and kc.fts @@ websearch_to_tsquery('english', :fts_query)
+                    order by retrieval_score desc
+                    limit :match_count
+                    """
+                ),
+                {
+                    "fts_query": fts_query,
+                    "match_count": match_count,
+                },
+            ).mappings().all()
+        else:
+            # Hybrid Vector + FTS search with dynamic vector distance
+            distance_calc = (
+                "kc.embedding <=> cast(:query_embedding as extensions.vector)"
+                if has_vector
+                else "public.cosine_distance(kc.embedding, :query_embedding_list)"
+            )
+
+            hybrid_sql = f"""
                 with semantic_candidates as (
                     select
                         kc.id,
-                        kc.embedding <=> cast(
-                            :query_embedding as extensions.vector
-                        ) as distance
+                        {distance_calc} as distance
                     from public.knowledge_chunks kc
                     join public.knowledge_sources ks
                         on ks.id = kc.source_id
@@ -95,9 +173,7 @@ def retrieve_knowledge(
                           or p.is_active = true
                       )
                       and kc.embedding_model = :embedding_model
-                    order by kc.embedding <=> cast(
-                        :query_embedding as extensions.vector
-                    )
+                    order by {distance_calc}
                     limit :candidate_count
                 ),
 
@@ -120,7 +196,7 @@ def retrieve_knowledge(
                                 kc.fts,
                                 websearch_to_tsquery(
                                     'english',
-                                    :query_text
+                                    :fts_query
                                 )
                             ) desc
                         ) as keyword_rank
@@ -136,13 +212,13 @@ def retrieve_knowledge(
                       )
                       and kc.fts @@ websearch_to_tsquery(
                           'english',
-                          :query_text
+                          :fts_query
                       )
                     order by ts_rank_cd(
                         kc.fts,
                         websearch_to_tsquery(
                             'english',
-                            :query_text
+                            :fts_query
                         )
                     ) desc
                     limit :candidate_count
@@ -206,11 +282,10 @@ def retrieve_knowledge(
                     combined.retrieval_score desc,
                     combined.similarity desc nulls last
                 limit :match_count
-                """
-            ),
-            {
-                "query_text": cleaned_query,
-                "query_embedding": serialized_embedding,
+            """
+
+            params = {
+                "fts_query": fts_query,
                 "embedding_model": embedding_model,
                 "candidate_count": candidate_count,
                 "match_threshold": match_threshold,
@@ -218,8 +293,13 @@ def retrieve_knowledge(
                 "semantic_weight": semantic_weight,
                 "keyword_weight": keyword_weight,
                 "rrf_k": rrf_k,
-            },
-        ).mappings().all()
+            }
+            if has_vector:
+                params["query_embedding"] = serialized_embedding
+            else:
+                params["query_embedding_list"] = query_embedding
+
+            rows = connection.execute(text(hybrid_sql), params).mappings().all()
 
     return [
         RetrievalResult(
@@ -243,6 +323,7 @@ def retrieve_knowledge(
         )
         for row in rows
     ]
+
 
 def format_knowledge_context(
     results: list[RetrievalResult],
