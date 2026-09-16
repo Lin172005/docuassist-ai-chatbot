@@ -1,61 +1,210 @@
 "use client";
 
+import { useState, Suspense } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import Header from "@/components/Header";
+
+function ContactForm() {
+  const searchParams = useSearchParams();
+  const productName = searchParams.get("name");
+  const qty = searchParams.get("qty");
+  const variant = searchParams.get("variant");
+  const subjParam = searchParams.get("subject");
+
+  const defaultSubject = subjParam
+    ? subjParam
+    : productName
+    ? `Order Enquiry: ${qty || "1"}x ${productName}${variant ? ` (${variant})` : ""}`
+    : "";
+
+  const defaultMessage = productName
+    ? `Hello WildHive,\n\nI would like to enquire about ordering ${qty || "1"} unit(s) of ${productName}${variant ? ` (${variant})` : ""}. Please let me know the availability, delivery schedule, and payment details.`
+    : "";
+
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [subject, setSubject] = useState(defaultSubject);
+  const [message, setMessage] = useState(defaultMessage);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setErrorMsg("");
+
+    if (!name.trim() || !email.trim() || !subject.trim() || !message.trim()) {
+      setErrorMsg("Please complete all required fields.");
+      return;
+    }
+
+    if (!email.includes("@") || !email.includes(".")) {
+      setErrorMsg("Please provide a valid email address.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    // Simulate server dispatch
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    setIsSubmitting(false);
+    setSubmitted(true);
+  }
+
+  if (submitted) {
+    return (
+      <div className="min-card p-8 sm:p-10 text-center">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#eaf1ec] text-[#1e3d2f] text-2xl font-bold">
+          ✓
+        </div>
+        <h2 className="mt-4 text-2xl font-bold text-[#1c2e24]">Message Received</h2>
+        <p className="mt-2 text-sm leading-relaxed text-[#637368] max-w-md mx-auto">
+          Thank you, <strong>{name}</strong>! Your message regarding &ldquo;{subject}&rdquo; has been sent to the WildHive team. We will respond to <strong>{email}</strong> within 24 hours.
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            setSubmitted(false);
+            setName("");
+            setEmail("");
+            setSubject("");
+            setMessage("");
+          }}
+          className="mt-6 btn-secondary text-xs"
+        >
+          Send another message
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-card p-8 sm:p-10">
+      <h2 className="text-xl font-bold text-[#1c2e24]">Send us a message</h2>
+      <p className="mt-1 text-xs text-[#637368]">
+        Order enquiries, wholesale requests, or question about our hives.
+      </p>
+
+      {errorMsg && (
+        <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-700">
+          {errorMsg}
+        </div>
+      )}
+
+      <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label htmlFor="name" className="mb-1.5 block text-xs font-semibold text-[#1c2e24]">
+              Your Name *
+            </label>
+            <input
+              type="text"
+              id="name"
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Anand Sharma"
+              className="min-input"
+            />
+          </div>
+          <div>
+            <label htmlFor="email" className="mb-1.5 block text-xs font-semibold text-[#1c2e24]">
+              Email Address *
+            </label>
+            <input
+              type="email"
+              id="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              className="min-input"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label htmlFor="subject" className="mb-1.5 block text-xs font-semibold text-[#1c2e24]">
+            Subject *
+          </label>
+          <input
+            type="text"
+            id="subject"
+            required
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            placeholder="How can we assist you?"
+            className="min-input"
+          />
+        </div>
+
+        <div>
+          <label htmlFor="message" className="mb-1.5 block text-xs font-semibold text-[#1c2e24]">
+            Message *
+          </label>
+          <textarea
+            id="message"
+            rows={5}
+            required
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="Write your message or order specifications here..."
+            className="min-input resize-none"
+          />
+        </div>
+
+        <button
+          type="submit"
+          disabled={isSubmitting}
+          className="w-full btn-primary !py-3 font-semibold text-sm disabled:opacity-60"
+        >
+          {isSubmitting ? "Sending message..." : "Send Message"}
+        </button>
+      </form>
+    </div>
+  );
+}
 
 export default function ContactPage() {
   return (
-    <main className="min-h-screen bg-[#fffaf0] text-[#243b2a]">
+    <main className="min-h-screen bg-[#faf9f5] text-[#1c2e24]">
       <Header />
 
       {/* Breadcrumb */}
-      <div className="mx-auto max-w-7xl px-6 pt-24">
-        <nav className="flex items-center gap-2 text-sm text-[#879088]">
-          <a href="/" className="transition hover:text-[#d88a16]">
+      <div className="mx-auto max-w-7xl px-6 pt-24 pb-4">
+        <nav className="flex items-center gap-2 text-xs text-[#8a9890]">
+          <Link href="/" className="hover:text-[#1c2e24] transition">
             Home
-          </a>
+          </Link>
           <span>/</span>
-          <span className="font-medium text-[#243b2a]">Contact</span>
+          <span className="font-medium text-[#1c2e24]">Contact &amp; Enquiries</span>
         </nav>
       </div>
 
-      <section className="mx-auto max-w-7xl px-6 py-12">
-        <div className="grid gap-16 lg:grid-cols-2">
-          {/* Left — Info */}
+      <section className="mx-auto max-w-7xl px-6 py-8">
+        <div className="grid gap-12 lg:grid-cols-2 lg:items-start">
+          {/* Left info */}
           <div>
-            <p className="text-sm font-bold uppercase tracking-[0.2em] text-[#d88a16]">
+            <span className="text-xs font-bold uppercase tracking-[0.2em] text-[#c98a2c]">
               Get in Touch
-            </p>
-            <h1 className="mt-3 text-4xl font-bold tracking-tight text-[#243b2a] sm:text-5xl">
-              We&apos;d love to hear
-              <span className="text-[#d88a16]"> from you.</span>
+            </span>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight text-[#1c2e24] sm:text-4xl">
+              We&apos;d love to hear from you.
             </h1>
-            <p className="mt-6 max-w-lg text-lg leading-8 text-[#657168]">
-              Whether you have a question about our honey, need help with an
-              order, or want to partner with us — our team is ready to help.
+            <p className="mt-3 text-sm leading-relaxed text-[#637368] max-w-md">
+              Whether you have a question about our honey varieties, need help with an order, or want bulk harvest supplies, our team is ready to help.
             </p>
 
-            <div className="mt-12 space-y-8">
+            <div className="mt-8 space-y-6">
               <div className="flex items-start gap-4">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#fff0c8]">
-                  <svg
-                    className="h-6 w-6 text-[#d88a16]"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={1.5}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75"
-                    />
-                  </svg>
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#f4f2eb] text-sm text-[#1e3d2f]">
+                  ✉
                 </div>
                 <div>
-                  <h3 className="font-bold text-[#243b2a]">Email</h3>
+                  <h3 className="text-sm font-semibold text-[#1c2e24]">Email</h3>
                   <a
                     href="mailto:hello@wildhive.com"
-                    className="mt-1 text-[#657168] transition hover:text-[#d88a16]"
+                    className="text-xs text-[#637368] hover:text-[#c98a2c] transition"
                   >
                     hello@wildhive.com
                   </a>
@@ -63,26 +212,14 @@ export default function ContactPage() {
               </div>
 
               <div className="flex items-start gap-4">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#fff0c8]">
-                  <svg
-                    className="h-6 w-6 text-[#d88a16]"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={1.5}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z"
-                    />
-                  </svg>
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#f4f2eb] text-sm text-[#1e3d2f]">
+                  ✆
                 </div>
                 <div>
-                  <h3 className="font-bold text-[#243b2a]">Phone</h3>
+                  <h3 className="text-sm font-semibold text-[#1c2e24]">Phone &amp; WhatsApp</h3>
                   <a
                     href="tel:+919876543210"
-                    className="mt-1 text-[#657168] transition hover:text-[#d88a16]"
+                    className="text-xs text-[#637368] hover:text-[#c98a2c] transition"
                   >
                     +91 98765 43210
                   </a>
@@ -90,115 +227,23 @@ export default function ContactPage() {
               </div>
 
               <div className="flex items-start gap-4">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#fff0c8]">
-                  <svg
-                    className="h-6 w-6 text-[#d88a16]"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={1.5}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
-                    />
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
-                    />
-                  </svg>
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#f4f2eb] text-sm text-[#1e3d2f]">
+                  ⚲
                 </div>
                 <div>
-                  <h3 className="font-bold text-[#243b2a]">Location</h3>
-                  <p className="mt-1 text-[#657168]">
-                    Natural Harvest Region, India
+                  <h3 className="text-sm font-semibold text-[#1c2e24]">Location</h3>
+                  <p className="text-xs text-[#637368]">
+                    Natural Harvest Region, Western Ghats &amp; Nilgiris, India
                   </p>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Right — Form */}
-          <div className="rounded-3xl border border-[#eee7d8] bg-white p-8 shadow-sm sm:p-10">
-            <h2 className="text-2xl font-bold text-[#243b2a]">
-              Send us a message
-            </h2>
-            <p className="mt-2 text-[#657168]">
-              Fill out the form and we&apos;ll get back to you within 24 hours.
-            </p>
-
-            <form className="mt-8 space-y-6" onSubmit={(e) => e.preventDefault()}>
-              <div className="grid gap-6 sm:grid-cols-2">
-                <div>
-                  <label
-                    htmlFor="name"
-                    className="mb-2 block text-sm font-medium text-[#243b2a]"
-                  >
-                    Name
-                  </label>
-                  <input
-                    type="text"
-                    id="name"
-                    placeholder="Your name"
-                    className="w-full rounded-xl border border-[#d8d0c1] px-4 py-3 text-[#243b2a] outline-none transition placeholder:text-[#929a93] focus:border-[#d88a16]"
-                  />
-                </div>
-                <div>
-                  <label
-                    htmlFor="email"
-                    className="mb-2 block text-sm font-medium text-[#243b2a]"
-                  >
-                    Email
-                  </label>
-                  <input
-                    type="email"
-                    id="email"
-                    placeholder="you@example.com"
-                    className="w-full rounded-xl border border-[#d8d0c1] px-4 py-3 text-[#243b2a] outline-none transition placeholder:text-[#929a93] focus:border-[#d88a16]"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label
-                  htmlFor="subject"
-                  className="mb-2 block text-sm font-medium text-[#243b2a]"
-                >
-                  Subject
-                </label>
-                <input
-                  type="text"
-                  id="subject"
-                  placeholder="How can we help?"
-                  className="w-full rounded-xl border border-[#d8d0c1] px-4 py-3 text-[#243b2a] outline-none transition placeholder:text-[#929a93] focus:border-[#d88a16]"
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="message"
-                  className="mb-2 block text-sm font-medium text-[#243b2a]"
-                >
-                  Message
-                </label>
-                <textarea
-                  id="message"
-                  rows={5}
-                  placeholder="Tell us more..."
-                  className="w-full resize-none rounded-xl border border-[#d8d0c1] px-4 py-3 text-[#243b2a] outline-none transition placeholder:text-[#929a93] focus:border-[#d88a16]"
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="w-full rounded-full bg-[#315c3a] px-5 py-3.5 font-semibold text-white transition hover:bg-[#264b2f]"
-              >
-                Send Message
-              </button>
-            </form>
-          </div>
+          {/* Right form with Suspense for useSearchParams */}
+          <Suspense fallback={<div className="min-card p-10 text-center text-sm text-[#637368]">Loading form...</div>}>
+            <ContactForm />
+          </Suspense>
         </div>
       </section>
     </main>

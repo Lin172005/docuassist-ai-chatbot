@@ -1,6 +1,11 @@
-create extension if not exists vector
-with schema extensions;
+create schema if not exists extensions;
 
+do $$
+begin
+    create extension if not exists vector with schema extensions;
+exception when others then
+    raise notice 'pgvector extension could not be loaded; falling back to double precision array embedding.';
+end $$;
 
 create table if not exists public.products (
     id uuid primary key default gen_random_uuid(),
@@ -20,6 +25,9 @@ create table if not exists public.products (
     updated_at timestamptz not null default now()
 );
 
+-- Ensure id and is_active defaults exist if table was pre-existing without default
+alter table public.products alter column id set default gen_random_uuid();
+alter table public.products alter column is_active set default true;
 
 create table if not exists public.knowledge_sources (
     id uuid primary key default gen_random_uuid(),
@@ -46,43 +54,76 @@ create table if not exists public.knowledge_sources (
     unique (source_type, source_key)
 );
 
+-- Cosine distance fallback function for array embeddings if vector extension is absent
+create or replace function public.cosine_distance(a double precision[], b double precision[])
+returns double precision
+language sql
+immutable
+as $$
+    select 1.0 - (
+        sum(x * y) / nullif(sqrt(sum(x * x)) * sqrt(sum(y * y)), 0.0)
+    )
+    from unnest(a, b) as t(x, y);
+$$;
 
-create table if not exists public.knowledge_chunks (
-    id uuid primary key default gen_random_uuid(),
-    source_id uuid not null
-        references public.knowledge_sources(id)
-        on delete cascade,
-    chunk_index integer not null
-        check (chunk_index >= 0),
-    content text not null,
-    content_hash text not null,
-    token_count integer
-        check (token_count is null or token_count > 0),
-    metadata jsonb not null default '{}'::jsonb,
-    embedding_model text not null,
-    embedding extensions.vector(768) not null,
-    created_at timestamptz not null default now(),
+do $$
+begin
+    if to_regtype('extensions.vector') is not null then
+        execute '
+            create table if not exists public.knowledge_chunks (
+                id uuid primary key default gen_random_uuid(),
+                source_id uuid not null
+                    references public.knowledge_sources(id)
+                    on delete cascade,
+                chunk_index integer not null
+                    check (chunk_index >= 0),
+                content text not null,
+                content_hash text not null,
+                token_count integer
+                    check (token_count is null or token_count > 0),
+                metadata jsonb not null default ''{}''::jsonb,
+                embedding_model text not null,
+                embedding extensions.vector(768) not null,
+                created_at timestamptz not null default now(),
 
-    unique (source_id, chunk_index)
-);
+                unique (source_id, chunk_index)
+            );
+            create index if not exists knowledge_chunks_embedding_hnsw_idx
+            on public.knowledge_chunks
+            using hnsw (embedding extensions.vector_cosine_ops);
+        ';
+    else
+        execute '
+            create table if not exists public.knowledge_chunks (
+                id uuid primary key default gen_random_uuid(),
+                source_id uuid not null
+                    references public.knowledge_sources(id)
+                    on delete cascade,
+                chunk_index integer not null
+                    check (chunk_index >= 0),
+                content text not null,
+                content_hash text not null,
+                token_count integer
+                    check (token_count is null or token_count > 0),
+                metadata jsonb not null default ''{}''::jsonb,
+                embedding_model text not null,
+                embedding double precision[] not null,
+                created_at timestamptz not null default now(),
 
+                unique (source_id, chunk_index)
+            );
+        ';
+    end if;
+end $$;
 
 create index if not exists knowledge_sources_product_id_idx
 on public.knowledge_sources(product_id);
 
-
 create index if not exists knowledge_sources_type_idx
 on public.knowledge_sources(source_type);
 
-
 create index if not exists knowledge_chunks_source_id_idx
 on public.knowledge_chunks(source_id);
-
-
-create index if not exists knowledge_chunks_embedding_hnsw_idx
-on public.knowledge_chunks
-using hnsw (embedding extensions.vector_cosine_ops);
-
 
 create or replace function public.set_updated_at()
 returns trigger
@@ -94,7 +135,6 @@ begin
 end;
 $$;
 
-
 drop trigger if exists products_set_updated_at
 on public.products;
 
@@ -102,7 +142,6 @@ create trigger products_set_updated_at
 before update on public.products
 for each row
 execute function public.set_updated_at();
-
 
 drop trigger if exists knowledge_sources_set_updated_at
 on public.knowledge_sources;
@@ -112,7 +151,19 @@ before update on public.knowledge_sources
 for each row
 execute function public.set_updated_at();
 
-
 alter table public.products enable row level security;
 alter table public.knowledge_sources enable row level security;
 alter table public.knowledge_chunks enable row level security;
+
+do $$
+begin
+    if not exists (select 1 from pg_policies where tablename = 'products' and policyname = 'allow_all_products') then
+        create policy allow_all_products on public.products for all using (true) with check (true);
+    end if;
+    if not exists (select 1 from pg_policies where tablename = 'knowledge_sources' and policyname = 'allow_all_knowledge_sources') then
+        create policy allow_all_knowledge_sources on public.knowledge_sources for all using (true) with check (true);
+    end if;
+    if not exists (select 1 from pg_policies where tablename = 'knowledge_chunks' and policyname = 'allow_all_knowledge_chunks') then
+        create policy allow_all_knowledge_chunks on public.knowledge_chunks for all using (true) with check (true);
+    end if;
+end $$;

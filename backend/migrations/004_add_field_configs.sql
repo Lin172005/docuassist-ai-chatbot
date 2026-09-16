@@ -42,6 +42,7 @@ create table if not exists public.field_configs (
     updated_at timestamptz not null default now()
 );
 
+drop trigger if exists field_configs_set_updated_at on public.field_configs;
 create trigger field_configs_set_updated_at
 before update on public.field_configs
 for each row
@@ -60,6 +61,7 @@ create table if not exists public.custom_field_defs (
     updated_at timestamptz not null default now()
 );
 
+drop trigger if exists custom_field_defs_set_updated_at on public.custom_field_defs;
 create trigger custom_field_defs_set_updated_at
 before update on public.custom_field_defs
 for each row

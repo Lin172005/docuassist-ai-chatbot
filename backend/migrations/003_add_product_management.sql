@@ -24,9 +24,12 @@ create table if not exists public.categories (
     updated_at timestamptz not null default now()
 );
 
+alter table public.categories alter column id set default gen_random_uuid();
+
 create index if not exists categories_parent_id_idx
 on public.categories(parent_id);
 
+drop trigger if exists categories_set_updated_at on public.categories;
 create trigger categories_set_updated_at
 before update on public.categories
 for each row
@@ -159,6 +162,8 @@ create table if not exists public.users (
     is_active boolean not null default true,
     created_at timestamptz not null default now()
 );
+
+alter table public.users alter column id set default gen_random_uuid();
 
 create index if not exists users_email_idx
 on public.users(email);

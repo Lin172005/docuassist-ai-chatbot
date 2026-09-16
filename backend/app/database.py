@@ -28,8 +28,9 @@ if database_url.startswith("postgresql://"):
 engine: Engine = create_engine(
     database_url,
     pool_pre_ping=True,
-    pool_size=3,
-    max_overflow=2,
+    pool_size=10,
+    max_overflow=10,
+    pool_timeout=30,
     pool_recycle=300,
     connect_args={
         "sslmode": os.getenv("DB_SSLMODE", "prefer"),
@@ -43,5 +44,8 @@ def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()

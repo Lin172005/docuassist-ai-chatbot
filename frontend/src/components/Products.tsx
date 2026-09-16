@@ -1,108 +1,114 @@
-const products = [
-  {
-    name: "Wildflower Honey",
-    description:
-      "A smooth, floral honey collected from bees foraging across seasonal wildflowers.",
-    weight: "500 g",
-    price: "₹349",
-    background: "bg-[#f6cc72]",
-  },
-  {
-    name: "Forest Honey",
-    description:
-      "A rich and full-bodied honey sourced from flowering trees in natural forest regions.",
-    weight: "500 g",
-    price: "₹449",
-    background: "bg-[#b9c99b]",
-  },
-  {
-    name: "Jamun Honey",
-    description:
-      "A distinctive honey with deep colour and a mildly tangy flavour from Jamun blossoms.",
-    weight: "500 g",
-    price: "₹399",
-    background: "bg-[#c6adca]",
-  },
-];
+"use client";
+
+import Link from "next/link";
+import { useProductContext } from "@/context/ProductContext";
 
 export default function Products() {
+  const { getActiveProducts } = useProductContext();
+  const allActive = getActiveProducts();
+  const featured = allActive.filter(p => p.category === "Honey").slice(0, 3);
+
+  const displayList = featured.length > 0 ? featured : [
+    {
+      id: "wildflower",
+      name: "Wildflower Honey",
+      description: "A smooth, floral honey collected from bees foraging across seasonal wildflowers.",
+      size: "500 g",
+      priceLabel: "₹349",
+      color: "#f6cc72",
+      images: [],
+    },
+    {
+      id: "forest",
+      name: "Forest Honey",
+      description: "A rich and full-bodied honey sourced from flowering trees in natural forest regions.",
+      size: "500 g",
+      priceLabel: "₹449",
+      color: "#b9c99b",
+      images: [],
+    },
+    {
+      id: "jamun",
+      name: "Jamun Honey",
+      description: "A distinctive honey with deep colour and a mildly tangy flavour from Jamun blossoms.",
+      size: "500 g",
+      priceLabel: "₹399",
+      color: "#c6adca",
+      images: [],
+    },
+  ];
+
   return (
-    <section id="products" className="bg-white px-6 py-24">
+    <section id="products" className="bg-[#faf9f5] border-t border-[#e8e5dc] px-6 py-24">
       <div className="mx-auto max-w-7xl">
-        <div className="flex flex-col justify-between gap-6 md:flex-row md:items-end">
+        <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
           <div>
-            <p className="text-sm font-bold uppercase tracking-[0.2em] text-[#d88a16]">
-              Our collection
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#c98a2c]">
+              Pure Harvest
             </p>
-
-            <h2 className="mt-3 max-w-2xl text-4xl font-bold tracking-tight text-[#243b2a] sm:text-5xl">
-              Honey for every taste
+            <h2 className="mt-2 text-3xl font-bold tracking-tight text-[#1c2e24] sm:text-4xl">
+              Featured Honey Varieties
             </h2>
-
-            <p className="mt-4 max-w-2xl text-lg leading-8 text-[#657168]">
-              Discover naturally harvested varieties, each shaped by the
-              flowers and landscapes surrounding its hive.
+            <p className="mt-3 max-w-2xl text-base text-[#637368]">
+              Discover raw, unadulterated varieties harvest-fresh from native floral blooms.
             </p>
           </div>
 
-          <a
-            href="#"
-            className="font-semibold text-[#315c3a] transition hover:text-[#d88a16]"
+          <Link
+            href="/products"
+            className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#1e3d2f] hover:text-[#c98a2c] transition"
           >
-            View all products →
-          </a>
+            Explore all items <span>→</span>
+          </Link>
         </div>
 
         <div className="mt-12 grid gap-8 md:grid-cols-2 lg:grid-cols-3">
-          {products.map((product) => (
+          {displayList.map((product) => (
             <article
               key={product.name}
-              className="overflow-hidden rounded-3xl border border-[#eee7d8] bg-[#fffdf8] shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl"
+              className="group min-card flex flex-col overflow-hidden"
             >
-              <div
-                className={`relative flex h-64 items-center justify-center overflow-hidden ${product.background}`}
-              >
-                <div className="absolute -right-12 -top-12 h-40 w-40 rounded-full bg-white/20" />
-
-                <div className="relative flex h-44 w-32 flex-col items-center justify-center rounded-[2rem] rounded-t-xl border-4 border-[#fff1c9] bg-gradient-to-b from-[#eeb02f] to-[#b96912] shadow-xl">
-                  <div className="absolute -top-4 h-7 w-20 rounded-t-md bg-[#315c3a]" />
-
-                  <div className="rounded-full bg-[#fff8e7] px-4 py-4 text-center text-[#315c3a]">
-                    <p className="text-sm font-bold">WildHive</p>
-                    <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide">
-                      Pure Honey
-                    </p>
+              <div className="relative flex h-56 items-center justify-center bg-[#f4f2eb] p-6 overflow-hidden">
+                {product.images && product.images[0]?.url ? (
+                  <img
+                    src={product.images[0].url}
+                    alt={product.name}
+                    className="h-full w-full object-cover rounded-xl transition duration-300 group-hover:scale-105"
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center">
+                    <span className="text-5xl text-[#c98a2c]">🍯</span>
+                    <span className="mt-2 text-xs font-semibold text-[#637368] uppercase tracking-wider">
+                      {product.size || "500g"}
+                    </span>
                   </div>
-                </div>
+                )}
               </div>
 
-              <div className="p-6">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h3 className="text-xl font-bold text-[#243b2a]">
+              <div className="p-6 flex flex-1 flex-col justify-between">
+                <div>
+                  <div className="flex items-start justify-between gap-4">
+                    <h3 className="text-lg font-bold text-[#1c2e24]">
                       {product.name}
                     </h3>
-
-                    <p className="mt-1 text-sm font-medium text-[#879088]">
-                      {product.weight}
+                    <p className="text-base font-bold text-[#c98a2c]">
+                      {product.priceLabel}
                     </p>
                   </div>
-
-                  <p className="text-lg font-bold text-[#d88a16]">
-                    {product.price}
+                  <p className="mt-2 text-sm leading-relaxed text-[#637368] line-clamp-2">
+                    {product.description}
                   </p>
                 </div>
 
-                <p className="mt-4 leading-7 text-[#657168]">
-                  {product.description}
-                </p>
-
-                <button
-                  type="button"
-                  className="mt-6 w-full rounded-full bg-[#315c3a] px-5 py-3 font-semibold text-white transition hover:bg-[#264b2f]"
-                >
-                  View product
-                </button>
+                <div className="mt-6 pt-4 border-t border-[#f0ede6] flex items-center justify-between">
+                  <span className="text-xs text-[#8a9890]">{product.size || "500 g"}</span>
+                  <Link
+                    href={`/products/${product.id}`}
+                    className="btn-primary text-xs !py-2 !px-4"
+                  >
+                    View Details
+                  </Link>
+                </div>
               </div>
             </article>
           ))}

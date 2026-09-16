@@ -3,7 +3,7 @@ import math
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user, require_role
@@ -21,6 +21,13 @@ from app.schemas.product import (
 router = APIRouter(prefix="/api/products", tags=["Products"])
 
 
+def _get_token_from_request_or_query(request: Request, query_token: str | None = None) -> str | None:
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        return auth_header[7:].strip()
+    return query_token
+
+
 def _optional_current_user(
     token: Optional[str] = None,
     db: Session = None,
@@ -34,11 +41,105 @@ def _optional_current_user(
         payload = pyjwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = payload.get("sub")
         if user_id:
-            user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
+            parsed_uuid = uuid.UUID(str(user_id))
+            user = db.query(User).filter(User.id == parsed_uuid, User.is_active == True).first()
             return user
     except Exception:
         pass
     return None
+
+
+def sync_product_knowledge(product: Product, db: Session) -> None:
+    """Synchronize product changes with RAG knowledge_sources and knowledge_chunks tables."""
+    try:
+        import hashlib
+        import json
+        from sqlalchemy import text
+        from app.services.chunking_service import chunk_text
+        from app.services.embedding_service import (
+            create_document_embedding,
+            embedding_model,
+            serialize_embedding,
+        )
+
+        knowledge_content = (
+            f"{product.name} is a {product.weight_grams or 500} gram WildHive honey product. "
+            f"It costs ₹{product.price_inr}. "
+            f"Description: {product.description or product.full_description or 'Pure natural honey'}. "
+            f"Flavour profile: {product.flavour_profile or 'Rich and natural'}. "
+            f"Source: {product.source_description or 'Naturally harvested'}."
+        )
+        content_hash = hashlib.sha256(knowledge_content.encode("utf-8")).hexdigest()
+        meta = json.dumps({
+            "sku": product.sku,
+            "slug": product.slug,
+            "category": product.category.name if product.category else "honey",
+            "source_title": product.name,
+        })
+
+        row = db.execute(
+            text("""
+                INSERT INTO public.knowledge_sources (
+                    product_id, source_type, source_key, title, content, content_hash, metadata, is_active
+                ) VALUES (
+                    :product_id, 'product', :source_key, :title, :content, :content_hash, cast(:metadata as jsonb), :is_active
+                )
+                ON CONFLICT (source_type, source_key)
+                DO UPDATE SET
+                    product_id = excluded.product_id,
+                    title = excluded.title,
+                    content = excluded.content,
+                    content_hash = excluded.content_hash,
+                    metadata = excluded.metadata,
+                    is_active = excluded.is_active,
+                    updated_at = now()
+                RETURNING id
+            """),
+            {
+                "product_id": str(product.id),
+                "source_key": f"product:{product.sku}",
+                "title": product.name,
+                "content": knowledge_content,
+                "content_hash": content_hash,
+                "metadata": meta,
+                "is_active": product.is_active,
+            },
+        ).first()
+
+        if row:
+            source_id = row[0]
+            # Delete old chunks for this source
+            db.execute(
+                text("DELETE FROM public.knowledge_chunks WHERE source_id = :source_id"),
+                {"source_id": source_id},
+            )
+
+            # If active, generate chunks and embeddings
+            if product.is_active and product.status == "published":
+                chunks = chunk_text(knowledge_content)
+                for index, chunk in enumerate(chunks):
+                    chunk_hash = hashlib.sha256(chunk.encode("utf-8")).hexdigest()
+                    emb = create_document_embedding(title=product.name, content=chunk)
+                    db.execute(
+                        text("""
+                            INSERT INTO public.knowledge_chunks (
+                                source_id, chunk_index, content, content_hash, metadata, embedding_model, embedding
+                            ) VALUES (
+                                :source_id, :chunk_index, :content, :content_hash, cast(:metadata as jsonb), :embedding_model, cast(:embedding as vector)
+                            )
+                        """),
+                        {
+                            "source_id": source_id,
+                            "chunk_index": index,
+                            "content": chunk,
+                            "content_hash": chunk_hash,
+                            "metadata": meta,
+                            "embedding_model": embedding_model,
+                            "embedding": serialize_embedding(emb),
+                        },
+                    )
+    except Exception as e:
+        print(f"Warning: RAG knowledge sync for product {product.id} failed: {e}")
 
 
 def product_to_response(p: Product) -> ProductResponse:
@@ -85,6 +186,7 @@ def product_to_response(p: Product) -> ProductResponse:
 
 @router.get("", response_model=ProductListResponse)
 def list_products(
+    request: Request,
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     category: str | None = None,
@@ -95,8 +197,9 @@ def list_products(
 ) -> ProductListResponse:
     query = db.query(Product)
 
-    # Check if user is admin/editor (can see all products)
-    current_user = _optional_current_user(token, db) if token else None
+    # Check if user is admin/editor (can see all products) via Authorization header or query param
+    auth_token = _get_token_from_request_or_query(request, token)
+    current_user = _optional_current_user(auth_token, db) if auth_token else None
     is_admin_or_editor = current_user and current_user.role in ("admin", "editor")
 
     if status_filter:
@@ -141,13 +244,30 @@ def list_products(
 @router.get("/{product_id}", response_model=ProductResponse)
 def get_product(
     product_id: str,
+    request: Request,
+    token: str | None = Query(None),
     db: Session = Depends(get_db),
 ) -> ProductResponse:
-    product = db.query(Product).filter(
-        Product.id == product_id,
-        Product.status == "published",
-        Product.is_active == True,
-    ).first()
+    try:
+        parsed_uuid = uuid.UUID(product_id)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Product not found.",
+        )
+
+    auth_token = _get_token_from_request_or_query(request, token)
+    current_user = _optional_current_user(auth_token, db) if auth_token else None
+    is_admin_or_editor = current_user and current_user.role in ("admin", "editor")
+
+    query = db.query(Product).filter(Product.id == parsed_uuid)
+    if not is_admin_or_editor:
+        query = query.filter(
+            Product.status == "published",
+            Product.is_active == True,
+        )
+
+    product = query.first()
     if not product:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -206,6 +326,9 @@ def create_product(
     db.commit()
     db.refresh(product)
 
+    sync_product_knowledge(product, db)
+    db.commit()
+
     return product_to_response(product)
 
 
@@ -216,7 +339,15 @@ def update_product(
     db: Session = Depends(get_db),
     _admin: User = Depends(require_role("admin", "editor")),
 ) -> ProductResponse:
-    product = db.query(Product).filter(Product.id == product_id).first()
+    try:
+        parsed_uuid = uuid.UUID(product_id)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Product not found.",
+        )
+
+    product = db.query(Product).filter(Product.id == parsed_uuid).first()
     if not product:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -261,6 +392,9 @@ def update_product(
     db.commit()
     db.refresh(product)
 
+    sync_product_knowledge(product, db)
+    db.commit()
+
     return product_to_response(product)
 
 
@@ -270,7 +404,15 @@ def delete_product(
     db: Session = Depends(get_db),
     _admin: User = Depends(require_role("admin")),
 ) -> dict:
-    product = db.query(Product).filter(Product.id == product_id).first()
+    try:
+        parsed_uuid = uuid.UUID(product_id)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Product not found.",
+        )
+
+    product = db.query(Product).filter(Product.id == parsed_uuid).first()
     if not product:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -280,6 +422,9 @@ def delete_product(
     product.status = "archived"
     product.is_active = False
     product.updated_at = datetime.now(timezone.utc)
+    db.commit()
+
+    sync_product_knowledge(product, db)
     db.commit()
 
     return {"detail": "Product archived.", "id": product_id}

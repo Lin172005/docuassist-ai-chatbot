@@ -46,6 +46,43 @@ app.add_middleware(
 )
 
 
+import time
+from collections import defaultdict
+
+# Simple in-memory sliding window rate limiter
+_request_records: dict[str, list[float]] = defaultdict(list)
+
+# Rate limits: path_prefix -> (max_requests, window_seconds)
+RATE_LIMIT_RULES: list[tuple[str, int, int]] = [
+    ("/api/chat", 20, 60),       # 20 requests/minute for chat
+    ("/api/auth/login", 15, 60), # 15 requests/minute for login
+]
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    client_ip = request.client.host if request.client else "unknown"
+    path = request.url.path
+    now = time.time()
+
+    for prefix, max_reqs, window in RATE_LIMIT_RULES:
+        if path.startswith(prefix):
+            key = f"{client_ip}:{prefix}"
+            timestamps = _request_records[key]
+            # Prune old timestamps
+            _request_records[key] = [t for t in timestamps if now - t < window]
+            if len(_request_records[key]) >= max_reqs:
+                return JSONResponse(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    content={"detail": "Rate limit exceeded. Please try again shortly."},
+                    headers={"Retry-After": str(window)},
+                )
+            _request_records[key].append(now)
+            break
+
+    return await call_next(request)
+
+
 @app.middleware("http")
 async def add_cache_control_headers(request: Request, call_next):
     response = await call_next(request)
@@ -56,6 +93,21 @@ async def add_cache_control_headers(request: Request, call_next):
             response.headers["Pragma"] = "no-cache"
             response.headers["Expires"] = "0"
     return response
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    if isinstance(exc, HTTPException):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+            headers=getattr(exc, "headers", None),
+        )
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "An unexpected server error occurred."},
+    )
+
 
 
 app.include_router(chat_router)

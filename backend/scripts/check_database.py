@@ -1,5 +1,12 @@
-from sqlalchemy import text
+import sys
+from pathlib import Path
 
+# Ensure backend root is in sys.path when running script directly
+backend_root = str(Path(__file__).resolve().parents[1])
+if backend_root not in sys.path:
+    sys.path.insert(0, backend_root)
+
+from sqlalchemy import text
 from app.database import engine
 
 

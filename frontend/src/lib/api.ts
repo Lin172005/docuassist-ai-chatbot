@@ -34,6 +34,15 @@ async function request<T>(endpoint: string, options: ApiOptions = {}): Promise<T
   }
 
   if (res.status === 204) return undefined as T;
+
+  const contentType = res.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    const text = await res.text();
+    throw new Error(
+      `Endpoint ${endpoint} returned non-JSON response (${contentType || "text/html"}). Preview: ${text.slice(0, 100)}`
+    );
+  }
+
   return res.json();
 }
 
@@ -136,7 +145,6 @@ export async function getProducts(params?: {
   if (params?.category) searchParams.set("category", params.category);
   if (params?.status) searchParams.set("status", params.status);
   if (params?.search) searchParams.set("search", params.search);
-  if (params?.token) searchParams.set("token", params.token);
 
   const qs = searchParams.toString();
   return request<ProductListResponse>(`/api/products${qs ? `?${qs}` : ""}`, {

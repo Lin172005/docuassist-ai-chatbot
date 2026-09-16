@@ -1,14 +1,16 @@
+import Link from "next/link";
+
 export default function Footer() {
   return (
-    <footer className="bg-[#243b2a] text-white">
+    <footer className="border-t border-[#e8e5dc] bg-[#1e3d2f] text-white">
       <div className="mx-auto max-w-7xl px-6 py-16">
         <div className="grid gap-12 sm:grid-cols-2 lg:grid-cols-4">
           {/* Brand */}
           <div className="sm:col-span-2 lg:col-span-1">
-            <a href="/" className="text-2xl font-bold tracking-tight">
-              Wild<span className="text-[#d88a16]">Hive</span>
-            </a>
-            <p className="mt-4 max-w-xs leading-7 text-[#a3b8a6]">
+            <Link href="/" className="text-2xl font-bold tracking-tight">
+              Wild<span className="text-[#f6cc72]">Hive</span>
+            </Link>
+            <p className="mt-4 max-w-xs text-sm leading-relaxed text-[#c2d1c5]">
               Pure, responsibly sourced honey delivered from hive to home.
               Every jar preserves the natural flavour, aroma and goodness
               bees intended.
@@ -51,36 +53,36 @@ export default function Footer() {
             </h3>
             <ul className="mt-5 space-y-3">
               <li>
-                <a
+                <Link
                   href="/"
                   className="text-[#a3b8a6] transition hover:text-white"
                 >
                   Home
-                </a>
+                </Link>
               </li>
               <li>
-                <a
+                <Link
                   href="/#story"
                   className="text-[#a3b8a6] transition hover:text-white"
                 >
                   Our Story
-                </a>
+                </Link>
               </li>
               <li>
-                <a
+                <Link
                   href="/#benefits"
                   className="text-[#a3b8a6] transition hover:text-white"
                 >
                   Why WildHive
-                </a>
+                </Link>
               </li>
               <li>
-                <a
+                <Link
                   href="/contact"
                   className="text-[#a3b8a6] transition hover:text-white"
                 >
                   Contact
-                </a>
+                </Link>
               </li>
             </ul>
           </div>
@@ -92,52 +94,52 @@ export default function Footer() {
             </h3>
             <ul className="mt-5 space-y-3">
               <li>
-                <a
+                <Link
                   href="/products"
                   className="text-[#a3b8a6] transition hover:text-white"
                 >
                   Wildflower Honey
-                </a>
+                </Link>
               </li>
               <li>
-                <a
+                <Link
                   href="/products"
                   className="text-[#a3b8a6] transition hover:text-white"
                 >
                   Clover Honey
-                </a>
+                </Link>
               </li>
               <li>
-                <a
+                <Link
                   href="/products"
                   className="text-[#a3b8a6] transition hover:text-white"
                 >
                   Acacia Honey
-                </a>
+                </Link>
               </li>
               <li>
-                <a
+                <Link
                   href="/products"
                   className="text-[#a3b8a6] transition hover:text-white"
                 >
                   Forest Honey
-                </a>
+                </Link>
               </li>
               <li>
-                <a
+                <Link
                   href="/products"
                   className="text-[#a3b8a6] transition hover:text-white"
                 >
                   Manuka Honey
-                </a>
+                </Link>
               </li>
               <li>
-                <a
+                <Link
                   href="/products"
                   className="font-semibold text-[#d88a16] transition hover:text-white"
                 >
                   View all &rarr;
-                </a>
+                </Link>
               </li>
             </ul>
           </div>

@@ -46,7 +46,14 @@ def get_category(
     category_id: str,
     db: Session = Depends(get_db),
 ) -> CategoryResponse:
-    cat = db.query(Category).filter(Category.id == category_id).first()
+    try:
+        parsed_uuid = uuid.UUID(category_id)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Category not found.",
+        )
+    cat = db.query(Category).filter(Category.id == parsed_uuid).first()
     if not cat:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -89,7 +96,14 @@ def update_category(
     db: Session = Depends(get_db),
     _admin: User = Depends(require_role("admin")),
 ) -> CategoryResponse:
-    cat = db.query(Category).filter(Category.id == category_id).first()
+    try:
+        parsed_uuid = uuid.UUID(category_id)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Category not found.",
+        )
+    cat = db.query(Category).filter(Category.id == parsed_uuid).first()
     if not cat:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -129,7 +143,14 @@ def delete_category(
     db: Session = Depends(get_db),
     _admin: User = Depends(require_role("admin")),
 ) -> dict:
-    cat = db.query(Category).filter(Category.id == category_id).first()
+    try:
+        parsed_uuid = uuid.UUID(category_id)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Category not found.",
+        )
+    cat = db.query(Category).filter(Category.id == parsed_uuid).first()
     if not cat:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

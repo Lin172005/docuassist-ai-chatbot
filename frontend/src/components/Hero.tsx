@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 export default function Hero() {
   return (
     <section className="relative min-h-screen overflow-hidden">
@@ -31,12 +33,12 @@ export default function Hero() {
           </p>
 
           <div className="mt-9 flex flex-col gap-4 sm:flex-row">
-            <a
+            <Link
               href="/products"
               className="rounded-full bg-[#d88a16] px-7 py-3.5 text-center font-semibold text-white transition hover:bg-[#bd7410]"
             >
               Discover our honey
-            </a>
+            </Link>
 
             <button
               type="button"
